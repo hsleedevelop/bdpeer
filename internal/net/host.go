@@ -11,9 +11,11 @@ import (
 	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/chad/bdpeer/internal/discovery"
 	"github.com/chad/bdpeer/internal/proto"
 )
 
@@ -138,6 +140,27 @@ func (h *Host) ConnectByAddr(ctx context.Context, addrStr string) (PeerInfo, err
 	nickname := h.NicknameFor(pi.ID)
 	return PeerInfo{ID: pi.ID, Nickname: nickname, Addrs: pi.Addrs}, nil
 }
+
+func (h *Host) AttachDiscovery(mgr *discovery.Manager) {
+	h.Libp2p.Network().Notify(&libp2pNotifee{host: h, mgr: mgr})
+}
+
+type libp2pNotifee struct {
+	host *Host
+	mgr  *discovery.Manager
+}
+
+func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
+	id := conn.RemotePeer()
+	nick := n.host.NicknameFor(id)
+	addrs := n.host.Libp2p.Peerstore().Addrs(id)
+	n.mgr.Notify(discovery.DiscoveredPeer{ID: id, Nickname: nick, Addrs: addrs, Source: "dht"})
+}
+func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
+	n.mgr.Forget(conn.RemotePeer().String())
+}
+func (n *libp2pNotifee) Listen(_ network.Network, _ multiaddr.Multiaddr)      {}
+func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
 
 // FirstTCPAddr returns the first TCP listen multiaddr of h (with peer ID appended).
 func FirstTCPAddr(h *Host) string {
