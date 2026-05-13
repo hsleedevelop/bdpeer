@@ -116,3 +116,31 @@ func (h *Host) Close() error {
 	}
 	return h.Libp2p.Close()
 }
+
+// ConnectByAddr connects to a peer by full multiaddr string (e.g., /ip4/1.2.3.4/tcp/4001/p2p/QmXxx)
+func (h *Host) ConnectByAddr(ctx context.Context, addrStr string) (PeerInfo, error) {
+	ma, err := multiaddr.NewMultiaddr(addrStr)
+	if err != nil {
+		return PeerInfo{}, fmt.Errorf("parse addr %q: %w", addrStr, err)
+	}
+	pi, err := peer.AddrInfoFromP2pAddr(ma)
+	if err != nil {
+		return PeerInfo{}, fmt.Errorf("addr info from %q: %w", addrStr, err)
+	}
+	if err := h.Libp2p.Connect(ctx, *pi); err != nil {
+		return PeerInfo{}, fmt.Errorf("connect: %w", err)
+	}
+	nickname := h.NicknameFor(pi.ID)
+	return PeerInfo{ID: pi.ID, Nickname: nickname, Addrs: pi.Addrs}, nil
+}
+
+// FirstTCPAddr returns the first TCP listen multiaddr of h (with peer ID appended).
+func FirstTCPAddr(h *Host) string {
+	pid := h.Libp2p.ID()
+	for _, a := range h.Libp2p.Addrs() {
+		if _, err := a.ValueForProtocol(multiaddr.P_TCP); err == nil {
+			return a.String() + "/p2p/" + pid.String()
+		}
+	}
+	return ""
+}
