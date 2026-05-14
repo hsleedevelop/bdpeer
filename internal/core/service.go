@@ -219,6 +219,19 @@ func (s *Service) Connect(ctx context.Context, addr string) error {
 	return err
 }
 
+func (s *Service) ConnectByNickname(ctx context.Context, nickname string) error {
+	if s.host == nil {
+		return fmt.Errorf("service not started")
+	}
+	s.log("닉네임 검색 중: " + nickname + " ...")
+	pi, err := s.host.FindByNickname(ctx, nickname)
+	if err != nil {
+		return err
+	}
+	s.log("발견: " + pi.ID.String()[:8] + "... 연결 중")
+	return s.host.Libp2p.Connect(ctx, pi)
+}
+
 func (s *Service) Send(ctx context.Context, req SendRequest) error {
 	if req.File != "" {
 		pr, pw := io.Pipe()

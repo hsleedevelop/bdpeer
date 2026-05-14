@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -120,7 +121,13 @@ func startCoreAfterNickname(
 			}(req)
 		case addr := <-connectCh:
 			go func(a string) {
-				if err := svc.Connect(ctx, a); err != nil {
+				var err error
+				if strings.HasPrefix(a, "/") {
+					err = svc.Connect(ctx, a)
+				} else {
+					err = svc.ConnectByNickname(ctx, a)
+				}
+				if err != nil {
 					prog.Send(ui.MsgError{Err: err})
 				}
 			}(addr)

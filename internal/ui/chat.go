@@ -16,7 +16,7 @@ func logView(m Model, width, height int) string {
 	for _, l := range m.logs[start:] {
 		lines = append(lines, StyleHelp.Render(l))
 	}
-	help := StyleHelp.Render("Tab: 채팅으로 전환  /connect <addr>: 수동 연결")
+	help := StyleHelp.Render("Tab: 채팅으로 전환  /connect <닉네임|addr>: 연결")
 	body := header + "\n" + strings.Join(lines, "\n") + "\n" + help
 	return StylePanel.Width(width).Height(height).Render(body)
 }

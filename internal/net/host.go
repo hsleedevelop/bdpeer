@@ -206,10 +206,29 @@ func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
 
 const dhtNamespace = "bdpeer/v1"
 
+func dhtNicknameKey(nickname string) string { return dhtNamespace + "/" + nickname }
+
 func (h *Host) emitLog(msg string) {
 	if h.OnLog != nil {
 		h.OnLog(msg)
 	}
+}
+
+// FindByNickname searches the DHT for a peer advertising under the given nickname.
+func (h *Host) FindByNickname(ctx context.Context, nickname string) (peer.AddrInfo, error) {
+	rd := drouting.NewRoutingDiscovery(h.dht)
+	findCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	peers, err := dutil.FindPeers(findCtx, rd, dhtNicknameKey(nickname))
+	if err != nil {
+		return peer.AddrInfo{}, fmt.Errorf("DHT 검색 실패: %w", err)
+	}
+	for _, p := range peers {
+		if p.ID != h.Libp2p.ID() {
+			return p, nil
+		}
+	}
+	return peer.AddrInfo{}, fmt.Errorf("닉네임 %q 을 찾을 수 없음", nickname)
 }
 
 // StartDHTDiscovery advertises on the DHT and periodically finds peers.
@@ -231,6 +250,9 @@ func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 			h.emitLog(fmt.Sprintf("DHT 라우팅 테이블: %d 피어 연결됨", rtSize))
 		}
 		dutil.Advertise(ctx, rd, dhtNamespace)
+		if h.Nickname != "" {
+			dutil.Advertise(ctx, rd, dhtNicknameKey(h.Nickname))
+		}
 		addrs := h.Libp2p.Addrs()
 		addrStrs := make([]string, 0, len(addrs))
 		for _, a := range addrs {
