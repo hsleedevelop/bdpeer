@@ -4,7 +4,7 @@
 ![Go Version](https://img.shields.io/github/go-mod/go-version/hsleedevelop/bdpeer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hsleedevelop/bdpeer)](https://goreportcard.com/report/github.com/hsleedevelop/bdpeer)
 
-로컬 네트워크에서 피어를 자동으로 발견하고 텍스트 메시지와 파일을 주고받는 크로스 플랫폼 P2P TUI 앱.
+같은 네트워크 또는 인터넷을 통해 피어를 자동으로 발견하고 텍스트 메시지와 파일을 주고받는 크로스 플랫폼 P2P TUI 앱.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -22,10 +22,12 @@
 
 ## 특징
 
-- **자동 피어 발견** — 같은 Wi-Fi에 있는 피어를 설정 없이 자동으로 탐색
+- **자동 피어 발견** — 같은 Wi-Fi(mDNS/Bonjour) 또는 다른 네트워크(libp2p DHT)에서 설정 없이 탐색
+- **수동 연결** — `/connect <multiaddr>` 로 주소를 직접 입력해 연결
 - **텍스트 채팅** — 선택한 피어에게 실시간 메시지 전송
 - **파일 전송** — `/file <경로>` 명령으로 파일 전송, SHA-256 체크섬 검증
 - **안정적인 identity** — peer ID가 앱 재시작 후에도 유지됨
+- **자체 업데이트** — `bdpeer --update` 한 줄로 최신 버전으로 교체
 - **크로스 플랫폼** — macOS, Windows, Linux 지원
 
 ## 설치
@@ -71,18 +73,35 @@ make build
 
 ## 사용법
 
-```
-./bdpeer
+```bash
+./bdpeer              # TUI 실행
+./bdpeer --version    # 버전 확인
+./bdpeer --update     # 최신 버전으로 업데이트
 ```
 
-첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 이후 같은 네트워크의 다른 bdpeer 인스턴스가 자동으로 발견됩니다.
+첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 같은 네트워크의 피어는 즉시 발견되고, 다른 서브넷·인터넷 너머 피어는 DHT를 통해 약 10–30초 후 자동으로 나타납니다.
 
-| 키 | 동작 |
+| 키 / 명령 | 동작 |
 |---|---|
 | `↑` / `↓` | 피어 선택 |
 | `Enter` | 메시지 전송 |
 | `/file <경로>` | 파일 전송 |
+| `/connect <multiaddr>` | 주소로 피어 직접 연결 |
 | `Ctrl+C` | 종료 |
+
+### 다른 서브넷 피어와 연결하기
+
+상단 타이틀에 표시된 내 주소를 상대방에게 전달하면 수동 연결이 가능합니다.
+
+```
+ bdpeer  [alice]  /ip4/192.168.50.71/tcp/12345/p2p/12D3KooW...
+```
+
+상대방 입력창에서:
+
+```
+/connect /ip4/192.168.50.71/tcp/12345/p2p/12D3KooW...
+```
 
 ## 빌드
 
@@ -106,11 +125,11 @@ make build-win-ble
 | SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
 | BLE | macOS, Linux, Windows (`-tags ble`) | 근거리 근접 발견 |
-| libp2p DHT | 인터넷 | 초기 인터넷 피어 발견 ⚠️ |
+| libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
 > **AirDrop**: Apple 전용 AWDL 프로토콜 사용 — 구현 불가. 같은 Wi-Fi에서 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
-> **인터넷 P2P**: DHT 초기화만 완료. circuit relay 예약/부트스트랩은 향후 작업 예정.
+> **DHT**: 공개 IPFS DHT 네트워크(`bdpeer/v1` 네임스페이스)를 사용. 양측 모두 인터넷 접근이 가능해야 합니다.
 
 ## 기술 스택
 
