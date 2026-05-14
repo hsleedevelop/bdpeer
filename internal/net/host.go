@@ -188,10 +188,9 @@ type libp2pNotifee struct {
 
 func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
-	nick := n.host.NicknameFor(id)
-	addrs := n.host.Libp2p.Peerstore().Addrs(id)
 	n.host.emitLog("연결됨: " + id.String()[:8] + "... (닉네임 교환 중)")
-	n.mgr.Notify(discovery.DiscoveredPeer{ID: id, Nickname: nick, Addrs: addrs, Source: "dht"})
+	// Do NOT notify mgr here — bootstrap/relay peers would flood the peer list.
+	// Peer is added to the list only after Hello frame exchange (service.go OnFrame).
 	if n.host.OnConnected != nil {
 		go n.host.OnConnected(id)
 	}

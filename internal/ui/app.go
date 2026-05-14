@@ -220,6 +220,8 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.inputBuf = ""
+	case tea.KeySpace:
+		m.inputBuf += " "
 	case tea.KeyBackspace:
 		if len(m.inputBuf) > 0 {
 			m.inputBuf = m.inputBuf[:len(m.inputBuf)-1]
