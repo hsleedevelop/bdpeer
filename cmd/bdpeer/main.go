@@ -23,6 +23,27 @@ var (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "--help", "-h", "help":
+			fmt.Printf(`bdpeer %s — 크로스 플랫폼 P2P TUI 채팅
+
+사용법:
+  bdpeer              TUI 실행
+  bdpeer --version    버전 확인
+  bdpeer --update     최신 버전으로 자동 업데이트
+  bdpeer --help       이 도움말 출력
+
+TUI 키 바인딩:
+  ↑ / ↓              피어 선택
+  Enter               메시지 전송
+  Tab                 채팅 ↔ 로그 패널 전환
+  Ctrl+C              종료
+
+TUI 커맨드 (입력창):
+  /connect <multiaddr>   주소로 피어 직접 연결
+  /file <경로>           파일 전송
+
+`, version)
+			return
 		case "--version", "-v", "version":
 			fmt.Printf("bdpeer %s (%s) built %s\n", version, commit, date)
 			return
