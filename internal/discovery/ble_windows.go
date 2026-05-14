@@ -1,4 +1,4 @@
-//go:build ble && windows
+//go:build windows
 
 package discovery
 

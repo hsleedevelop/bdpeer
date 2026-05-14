@@ -1,4 +1,4 @@
-//go:build ble && darwin
+//go:build darwin
 
 package core
 

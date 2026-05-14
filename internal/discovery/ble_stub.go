@@ -1,4 +1,4 @@
-//go:build !ble
+//go:build !darwin && !windows && !linux
 
 package discovery
 

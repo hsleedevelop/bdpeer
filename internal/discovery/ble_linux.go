@@ -1,4 +1,4 @@
-//go:build ble && linux
+//go:build linux
 
 package discovery
 

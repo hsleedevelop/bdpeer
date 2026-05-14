@@ -1,5 +1,5 @@
 // ble_corebluetooth.m — CoreBluetooth peripheral + central for bdpeer BLE signaling.
-//go:build ble && darwin
+//go:build darwin
 
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>

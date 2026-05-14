@@ -7,13 +7,27 @@ before:
     - go mod tidy
 
 builds:
-  - id: bdpeer
+  # darwin: CGO required for CoreBluetooth BLE
+  - id: bdpeer-darwin
+    main: ./cmd/bdpeer
+    binary: bdpeer
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+      - amd64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  # linux + windows: tinygo BLE scan via pure Go (no CGO needed)
+  - id: bdpeer-other
     main: ./cmd/bdpeer
     binary: bdpeer
     env:
       - CGO_ENABLED=0
     goos:
-      - darwin
       - linux
       - windows
     goarch:
@@ -25,24 +39,10 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
-  - id: bdpeer-ble
-    main: ./cmd/bdpeer
-    binary: bdpeer-ble
-    tags:
-      - ble
-    env:
-      - CGO_ENABLED=1
-    goos:
-      - darwin
-    goarch:
-      - arm64
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-
 archives:
-  - id: default
-    ids:
-      - bdpeer
+  - ids:
+      - bdpeer-darwin
+      - bdpeer-other
     formats:
       - tar.gz
     format_overrides:
@@ -50,13 +50,6 @@ archives:
         formats:
           - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-  - id: ble
-    ids:
-      - bdpeer-ble
-    formats:
-      - tar.gz
-    name_template: "{{ .ProjectName }}-ble_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
