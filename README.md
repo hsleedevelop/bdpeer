@@ -112,15 +112,10 @@ make build
 ## 빌드
 
 ```bash
-make build          # 현재 플랫폼
-make build-mac      # macOS (amd64 + arm64)
-make build-win      # Windows amd64
-make build-linux    # Linux amd64
-
-# BLE 지원 포함 빌드 (CGo 필요)
-make build-mac-ble
-make build-linux-ble
-make build-win-ble
+make build          # 현재 플랫폼 (BLE 포함)
+make build-mac      # macOS arm64 + amd64 (CGO=1, BLE 포함)
+make build-win      # Windows amd64 (BLE 스캔 포함)
+make build-linux    # Linux amd64 (BLE 스캔 포함)
 ```
 
 ## 피어 발견 프로토콜
@@ -130,15 +125,42 @@ make build-win-ble
 | mDNS/Bonjour (`_bdpeer._tcp`) | macOS, iOS, Android, Windows 10+ | 로컬 Wi-Fi 자동 발견 |
 | SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
-| BLE | macOS (`-tags ble`, CoreBluetooth) | 근거리 근접 발견 + WebRTC 업그레이드 |
-| BLE (스캔 전용) | Linux, Windows (`-tags ble`, tinygo) | 근거리 근접 발견 |
-| BLE→WebRTC | macOS (`-tags ble`) | BLE 시그널링으로 WebRTC 연결 수립 — **다른 서브넷·NAT 환경에서도 동작** |
+| BLE + WebRTC | macOS (기본 내장, CoreBluetooth) | BLE로 발견 → WebRTC로 연결 — **다른 서브넷·NAT 무관** |
+| BLE 스캔 | Linux, Windows (기본 내장, tinygo) | 근거리 근접 발견 |
 | libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
-> **BLE→WebRTC**: macOS에서 `-tags ble` 빌드 시 BLE를 WebRTC 시그널링 채널로 사용합니다. STUN/ICE NAT 홀펀칭으로 서로 다른 공유기(NAT)에 있는 두 기기가 직접 연결됩니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer 생성), 높은 닉네임이 Responder(answer 생성)로 역할이 고정됩니다.  
-> **AirDrop**: Apple 전용 AWDL 프로토콜 사용 — 구현 불가. 같은 Wi-Fi에서 Bonjour로 발견 가능.  
+> **BLE→WebRTC**: macOS 기본 바이너리에 포함(별도 빌드 불필요). BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다.  
+> **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
+> **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
-> **DHT**: 공개 IPFS DHT 네트워크(`bdpeer/v1` 네임스페이스)를 사용. 양측 모두 인터넷 접근이 가능해야 합니다. NAT 홀펀칭(DCUtR) + AutoRelay를 지원하여 서로 다른 공유기(NAT) 뒤에 있어도 IPFS 중계 노드를 경유해 자동으로 연결됩니다.
+> **DHT**: 공개 IPFS DHT(`bdpeer/v1` 네임스페이스) 사용. NAT 홀펀칭(DCUtR) + AutoRelay 지원.
+
+## TURN 서버 설정 (선택)
+
+BLE→WebRTC는 STUN 실패 시 Open Relay Project TURN 서버를 자동으로 사용합니다. 자체 TURN 서버(coturn 등)를 사용하려면 config 파일에 추가하세요.
+
+**config 파일 경로**
+
+| 플랫폼 | 경로 |
+|---|---|
+| macOS | `~/Library/Application Support/bdpeer/config.json` |
+| Linux | `~/.config/bdpeer/config.json` |
+| Windows | `%APPDATA%\bdpeer\config.json` |
+
+```json
+{
+  "nickname": "alice",
+  "turn_servers": [
+    {
+      "url": "turn:my-coturn.example.com:3478",
+      "username": "user",
+      "credential": "password"
+    }
+  ]
+}
+```
+
+`turn_servers`를 설정하면 Open Relay 대신 지정한 서버만 사용합니다.
 
 ## 기술 스택
 
@@ -147,9 +169,9 @@ make build-win-ble
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI 프레임워크
 - [zeroconf](https://github.com/grandcat/zeroconf) — mDNS/Bonjour
 - [go-ssdp](https://github.com/koron/go-ssdp) — SSDP/UPnP
-- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE scan, Linux/Windows (`-tags ble`)
-- [CoreBluetooth](https://developer.apple.com/documentation/corebluetooth) — BLE peripheral+central, macOS CGo (`-tags ble`)
-- [pion/webrtc](https://github.com/pion/webrtc) — WebRTC NAT traversal (`v4`)
+- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE 스캔, Linux/Windows
+- [CoreBluetooth](https://developer.apple.com/documentation/corebluetooth) — BLE peripheral+central+WebRTC 시그널링, macOS
+- [pion/webrtc](https://github.com/pion/webrtc) — WebRTC STUN/TURN NAT traversal (`v4`)
 
 ## 라이선스
 
