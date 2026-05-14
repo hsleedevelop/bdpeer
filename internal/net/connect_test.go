@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	bnet "github.com/chad/bdpeer/internal/net"
+	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 )
 
 func TestConnectByMultiaddr(t *testing.T) {

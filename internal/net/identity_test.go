@@ -3,7 +3,7 @@ package net_test
 import (
 	"testing"
 
-	bnet "github.com/chad/bdpeer/internal/net"
+	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 )
 
 func TestPrivateKeyRoundTrip(t *testing.T) {

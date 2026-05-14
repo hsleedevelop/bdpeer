@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chad/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/transfer"
 )
 
 func TestFileSendReceive(t *testing.T) {

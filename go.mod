@@ -1,4 +1,4 @@
-module github.com/chad/bdpeer
+module github.com/hsleedevelop/bdpeer
 
 go 1.26.3
 

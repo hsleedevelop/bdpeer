@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chad/bdpeer/internal/config"
+	"github.com/hsleedevelop/bdpeer/internal/config"
 )
 
 func TestSaveAndLoad(t *testing.T) {

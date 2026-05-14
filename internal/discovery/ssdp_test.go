@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chad/bdpeer/internal/discovery"
+	"github.com/hsleedevelop/bdpeer/internal/discovery"
 )
 
 func TestSSDPAdvertiseAndSearch(t *testing.T) {

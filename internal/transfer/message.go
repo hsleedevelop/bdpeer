@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/chad/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
 )
 
 // WriteFrame encodes a Frame as: [4-byte big-endian length][JSON payload]

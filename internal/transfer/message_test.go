@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/chad/bdpeer/internal/proto"
-	"github.com/chad/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/transfer"
 )
 
 func TestWriteReadTextFrame(t *testing.T) {

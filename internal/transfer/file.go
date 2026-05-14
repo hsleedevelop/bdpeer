@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chad/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
 )
 
 // WriteFile sends FILE_START, FILE_CHUNK..., FILE_END frames to w.

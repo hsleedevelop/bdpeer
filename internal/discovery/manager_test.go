@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chad/bdpeer/internal/discovery"
+	"github.com/hsleedevelop/bdpeer/internal/discovery"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
