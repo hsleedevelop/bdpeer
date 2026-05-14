@@ -7,7 +7,11 @@ import (
 
 func peerListView(m Model, width, height int) string {
 	var sb strings.Builder
-	sb.WriteString(StyleTitle.Render("Peers") + "\n\n")
+	sb.WriteString(StyleTitle.Render("Peers") + "\n")
+	if m.nickname != "" {
+		sb.WriteString(StyleHelp.Render("나: "+m.nickname) + "\n")
+	}
+	sb.WriteString("\n")
 
 	if len(m.peers) == 0 {
 		sb.WriteString(StyleHelp.Render("searching...") + "\n")
