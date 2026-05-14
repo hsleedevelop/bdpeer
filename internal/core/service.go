@@ -172,30 +172,46 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	s.host.AttachDiscovery(mgr)
-	s.log("DHT 광고 시작 중... (부트스트랩 후 약 10초)")
-	s.host.StartDHTDiscovery(ctx, mgr)
 
+	s.log("━━━ 피어 탐색 시작 ━━━")
+
+	// [1/4] mDNS — 동일 LAN
+	s.log("[1/4] mDNS/Bonjour (동일 LAN) 시작...")
 	if stop, err := discovery.BrowseBonjour(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
 		if server, err := discovery.RegisterBonjour(s.cfg.Nickname, listenPort(s.host), hostFullAddrs(s.host)); err == nil {
 			s.stops = append(s.stops, func() { server.Shutdown() })
-			s.log("Bonjour 등록 완료 (로컬 mDNS)")
+			s.log("    ✓ mDNS 등록 완료")
 		} else {
-			s.log("Bonjour 등록 실패: " + err.Error())
+			s.log("    ✗ mDNS 등록 실패: " + err.Error())
 		}
 	} else {
-		s.log("Bonjour 브라우징 실패: " + err.Error())
+		s.log("    ✗ mDNS 실패: " + err.Error())
 	}
+
+	// [2/4] SSDP/WSD — 동일 LAN (Windows 호환)
+	s.log("[2/4] SSDP/WSD (동일 LAN, Windows) 시작...")
 	if stop, err := discovery.SearchSSDP(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
 		if advStop, err := discovery.AdvertiseSSDP(ctx, s.cfg.Nickname, listenPort(s.host)); err == nil {
 			s.stops = append(s.stops, advStop)
-			s.log("SSDP 광고 시작")
+			s.log("    ✓ SSDP 광고 완료")
 		}
 	}
 	_ = discovery.ListenWSD(ctx, mgr)
 	_ = discovery.SendWSDHello(ctx, s.cfg.Nickname, listenPort(s.host))
-	go discovery.StartBLE(ctx, s.cfg.Nickname, mgr)
+
+	// [3/4] BLE — 근거리 크로스망 (~10m)
+	s.log("[3/4] BLE (근거리 ~10m) 시작...")
+	go func() {
+		if err := discovery.StartBLE(ctx, s.cfg.Nickname, mgr); err != nil {
+			s.log("    ✗ BLE 실패: " + err.Error())
+		}
+	}()
+
+	// [4/4] DHT — 인터넷
+	s.log("[4/4] DHT (인터넷) 시작... (약 10초 후 광고)")
+	s.host.StartDHTDiscovery(ctx, mgr)
 
 	<-ctx.Done()
 	return s.Stop()

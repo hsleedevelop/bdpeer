@@ -5,6 +5,26 @@ import (
 	"strings"
 )
 
+func sourceBadge(source string) string {
+	switch source {
+	case "mdns", "bonjour":
+		return "[로컬]"
+	case "ssdp", "wsd":
+		return "[로컬]"
+	case "ble":
+		return "[BLE]"
+	case "ble→webrtc":
+		return "[BLE▸WTC]"
+	case "dht":
+		return "[DHT]"
+	default:
+		if source != "" {
+			return "[" + source + "]"
+		}
+		return ""
+	}
+}
+
 func peerListView(m Model, width, height int) string {
 	var sb strings.Builder
 	sb.WriteString(StyleTitle.Render("Peers") + "\n")
@@ -32,7 +52,8 @@ func peerListView(m Model, width, height int) string {
 		if m.activePeer != nil && m.activePeer.ID == p.ID {
 			cursor = "▶ "
 		}
-		line := fmt.Sprintf("%s%s", cursor, StylePeerOnline.Render(name))
+		badge := sourceBadge(p.Source)
+		line := fmt.Sprintf("%s%s %s", cursor, StylePeerOnline.Render(name), StyleHelp.Render(badge))
 		sb.WriteString(line + "\n")
 	}
 
