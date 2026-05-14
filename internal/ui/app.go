@@ -73,7 +73,7 @@ func New(nickname string) Model {
 	if nickname == "" {
 		screen = ScreenSetup
 	}
-	return Model{screen: screen, nickname: nickname}
+	return Model{screen: screen, nickname: nickname, showLog: true}
 }
 
 func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string, connectCh chan<- string) Model {
@@ -141,7 +141,7 @@ func mainView(m Model) string {
 	left := peerListView(m, leftW, m.height-2)
 
 	var right string
-	if m.showLog || m.activePeer == nil {
+	if m.showLog {
 		right = logView(m, rightW, m.height-2)
 	} else {
 		right = chatView(m, rightW, m.height-2)
