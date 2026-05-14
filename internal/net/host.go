@@ -77,6 +77,7 @@ func NewHostWithIdentity(ctx context.Context, nickname string, priv crypto.PrivK
 			"/ip4/0.0.0.0/udp/0/quic-v1",
 		),
 		libp2p.NATPortMap(),
+		libp2p.EnableHolePunching(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new libp2p host: %w", err)
@@ -184,8 +185,7 @@ func (h *Host) emitLog(msg string) {
 // StartDHTDiscovery advertises on the DHT and periodically finds peers.
 func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 	rd := drouting.NewRoutingDiscovery(h.dht)
-	dutil.Advertise(ctx, rd, dhtNamespace)
-	h.emitLog("DHT 광고 시작 (bdpeer/v1) — 부트스트랩 대기 중...")
+	h.emitLog("DHT 부트스트랩 대기 중 (약 10초)...")
 
 	go func() {
 		select {
@@ -193,6 +193,14 @@ func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 		case <-ctx.Done():
 			return
 		}
+		// Advertise AFTER bootstrap so the DHT is ready to store the provide record
+		dutil.Advertise(ctx, rd, dhtNamespace)
+		addrs := h.Libp2p.Addrs()
+		addrStrs := make([]string, 0, len(addrs))
+		for _, a := range addrs {
+			addrStrs = append(addrStrs, a.String())
+		}
+		h.emitLog("DHT 광고 시작 (bdpeer/v1), 내 주소: " + fmt.Sprintf("%v", addrStrs))
 		h.emitLog("DHT 준비 완료, 피어 검색 시작")
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
