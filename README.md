@@ -30,7 +30,36 @@
 
 ## 설치
 
-[Releases](https://github.com/chad/bdpeer/releases) 페이지에서 플랫폼에 맞는 바이너리를 다운로드하거나 직접 빌드합니다.
+[Releases](https://github.com/hsleedevelop/bdpeer/releases) 페이지에서 플랫폼에 맞는 바이너리를 다운로드합니다.
+
+### macOS
+
+```bash
+# 압축 해제
+tar -xzf bdpeer_*_darwin_*.tar.gz
+
+# Gatekeeper 차단 해제 (미서명 바이너리)
+xattr -d com.apple.quarantine bdpeer
+
+# 실행
+./bdpeer
+```
+
+> 시스템 환경설정 → 개인 정보 보호 및 보안에서 "어쨌든 허용"을 눌러도 됩니다.
+
+### Linux
+
+```bash
+tar -xzf bdpeer_*_linux_*.tar.gz
+chmod +x bdpeer
+./bdpeer
+```
+
+### Windows
+
+zip 압축 해제 후 `bdpeer.exe` 실행.
+
+### 직접 빌드
 
 ```bash
 # 현재 플랫폼 빌드
