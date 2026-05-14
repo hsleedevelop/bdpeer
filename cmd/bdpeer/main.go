@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/hsleedevelop/bdpeer/internal/config"
 	"github.com/hsleedevelop/bdpeer/internal/core"
 	"github.com/hsleedevelop/bdpeer/internal/ui"
+	"github.com/hsleedevelop/bdpeer/internal/update"
 )
 
 // Set at build time via ldflags.
@@ -19,6 +21,17 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v", "version":
+			fmt.Printf("bdpeer %s (%s) built %s\n", version, commit, date)
+			return
+		case "--update", "update":
+			runUpdate()
+			return
+		}
+	}
+
 	cfgPath := config.DefaultPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -94,6 +107,22 @@ func startCoreAfterNickname(
 			return
 		}
 	}
+}
+
+func runUpdate() {
+	fmt.Printf("현재 버전: %s\n", version)
+	fmt.Print("최신 버전 확인 중... ")
+
+	newTag, err := update.Do(version)
+	if errors.Is(err, update.ErrAlreadyLatest) {
+		fmt.Println("이미 최신 버전입니다.")
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "실패: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%s 업데이트 완료!\n다시 실행하면 새 버전이 적용됩니다.\n", newTag)
 }
 
 func forwardCoreEvents(events <-chan core.Event, prog *tea.Program) {
