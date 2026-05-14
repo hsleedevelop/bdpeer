@@ -1,29 +1,93 @@
 # bdpeer
 
-Cross-platform P2P TUI for local file & message transfer.
+로컬 네트워크에서 피어를 자동으로 발견하고 텍스트 메시지와 파일을 주고받는 크로스 플랫폼 P2P TUI 앱.
 
-## Usage
+```
+┌──────────────────────────────────────────────────────┐
+│  bdpeer  [alice]                                     │
+├──────────────┬───────────────────────────────────────┤
+│ Peers        │ Chat: bob                             │
+│              │                                       │
+│ ▶ bob        │ bob: 안녕!                            │
+│   carol      │ you: 파일 보낼게                      │
+│              │                                       │
+│              │ > /file ~/photo.jpg█                  │
+│ ↑/↓ select  │ Enter send  /file <path>  Esc quit   │
+└──────────────┴───────────────────────────────────────┘
+```
+
+## 특징
+
+- **자동 피어 발견** — 같은 Wi-Fi에 있는 피어를 설정 없이 자동으로 탐색
+- **텍스트 채팅** — 선택한 피어에게 실시간 메시지 전송
+- **파일 전송** — `/file <경로>` 명령으로 파일 전송, SHA-256 체크섬 검증
+- **안정적인 identity** — peer ID가 앱 재시작 후에도 유지됨
+- **크로스 플랫폼** — macOS, Windows, Linux 지원
+
+## 설치
+
+[Releases](https://github.com/chad/bdpeer/releases) 페이지에서 플랫폼에 맞는 바이너리를 다운로드하거나 직접 빌드합니다.
+
+```bash
+# 현재 플랫폼 빌드
+make build
+
+# 실행
+./dist/bdpeer
+```
+
+## 사용법
+
 ```
 ./bdpeer
 ```
 
-## Discovery protocols
-- **mDNS/Bonjour** (`_bdpeer._tcp`) — local WiFi, discovered by iOS/macOS/Android/Windows
-- **SSDP/UPnP** — Windows Network Discovery, some Android apps
-- **WS-Discovery** — Windows Explorer → Network folder
-- **BLE** — proximity discovery (build with `-tags ble`)
-- **libp2p DHT** — initial internet peer discovery (relay reservation is a future task ⚠️)
+첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 이후 같은 네트워크의 다른 bdpeer 인스턴스가 자동으로 발견됩니다.
 
-## Build
-```
-make build         # current platform
-make build-mac     # macOS (amd64 + arm64)
-make build-win     # Windows amd64
-make build-linux   # Linux amd64
-make build-mac-ble # macOS ARM64 with BLE support
+| 키 | 동작 |
+|---|---|
+| `↑` / `↓` | 피어 선택 |
+| `Enter` | 메시지 전송 |
+| `/file <경로>` | 파일 전송 |
+| `Ctrl+C` | 종료 |
+
+## 빌드
+
+```bash
+make build          # 현재 플랫폼
+make build-mac      # macOS (amd64 + arm64)
+make build-win      # Windows amd64
+make build-linux    # Linux amd64
+
+# BLE 지원 포함 빌드 (CGo 필요)
+make build-mac-ble
+make build-linux-ble
+make build-win-ble
 ```
 
-## Notes
-- **Internet P2P**: DHT is initialized but circuit relay bootstrap/reservation is not implemented. Internet-facing P2P requires explicit relay work.
-- **AirDrop**: Uses Apple proprietary AWDL, not implementable. Discoverable via Bonjour on same WiFi.
-- **Quick Share**: Requires Google Nearby Connections wire protocol (future work).
+## 피어 발견 프로토콜
+
+| 프로토콜 | 지원 환경 | 설명 |
+|---|---|---|
+| mDNS/Bonjour (`_bdpeer._tcp`) | macOS, iOS, Android, Windows 10+ | 로컬 Wi-Fi 자동 발견 |
+| SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
+| WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
+| BLE | macOS, Linux, Windows (`-tags ble`) | 근거리 근접 발견 |
+| libp2p DHT | 인터넷 | 초기 인터넷 피어 발견 ⚠️ |
+
+> **AirDrop**: Apple 전용 AWDL 프로토콜 사용 — 구현 불가. 같은 Wi-Fi에서 Bonjour로 발견 가능.  
+> **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
+> **인터넷 P2P**: DHT 초기화만 완료. circuit relay 예약/부트스트랩은 향후 작업 예정.
+
+## 기술 스택
+
+- [Go 1.22+](https://golang.org/)
+- [libp2p](https://libp2p.io/) — P2P 네트워킹
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI 프레임워크
+- [zeroconf](https://github.com/grandcat/zeroconf) — mDNS/Bonjour
+- [go-ssdp](https://github.com/koron/go-ssdp) — SSDP/UPnP
+- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE (`-tags ble`)
+
+## 라이선스
+
+[MIT](LICENSE)
