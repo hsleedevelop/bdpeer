@@ -174,7 +174,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyCtrlC:
+	case tea.KeyCtrlC, tea.KeyEsc:
 		return m, tea.Quit
 	case tea.KeyTab:
 		m.showLog = !m.showLog
@@ -226,6 +226,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if msg.Type == tea.KeyRunes {
+			if msg.String() == "q" && m.inputBuf == "" {
+				return m, tea.Quit
+			}
 			m.inputBuf += string(msg.Runes)
 		}
 	}
