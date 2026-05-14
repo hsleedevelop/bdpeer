@@ -19,6 +19,7 @@ import (
 func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager) {
 	upgrader := bnet.NewBLEWebRTCUpgrader(s.cfg.Nickname)
 	upgrader.OnLog = s.log
+	upgrader.TURNServers = s.cfg.ICEServers()
 	upgrader.SendOfferFn = discovery.BLECentralSendSDP
 	upgrader.SendAnswerFn = discovery.BLEPeripheralSendSDP
 

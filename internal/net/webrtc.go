@@ -6,14 +6,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/hsleedevelop/bdpeer/internal/config"
 	"github.com/pion/webrtc/v4"
 )
-
-// stunServers are free public STUN servers for ICE NAT traversal.
-var stunServers = []string{
-	"stun:stun.l.google.com:19302",
-	"stun:stun1.l.google.com:19302",
-}
 
 // WebRTCConn wraps a pion PeerConnection with a reliable data channel.
 // It implements io.ReadWriteCloser so it can carry bdpeer protocol frames.
@@ -27,10 +22,20 @@ type WebRTCConn struct {
 	connectedCh chan struct{}
 }
 
-func newWebRTCConfig() webrtc.Configuration {
-	servers := make([]webrtc.ICEServer, 0, len(stunServers))
-	for _, url := range stunServers {
-		servers = append(servers, webrtc.ICEServer{URLs: []string{url}})
+// newWebRTCConfig builds a WebRTC configuration with STUN + TURN servers.
+// turnServers come from config — custom servers override the built-in Open Relay defaults.
+func newWebRTCConfig(turnServers []config.TURNServer) webrtc.Configuration {
+	servers := []webrtc.ICEServer{
+		{URLs: []string{"stun:stun.l.google.com:19302"}},
+		{URLs: []string{"stun:stun1.l.google.com:19302"}},
+	}
+	for _, t := range turnServers {
+		servers = append(servers, webrtc.ICEServer{
+			URLs:           []string{t.URL},
+			Username:       t.Username,
+			Credential:     t.Credential,
+			CredentialType: webrtc.ICECredentialTypePassword,
+		})
 	}
 	return webrtc.Configuration{ICEServers: servers}
 }
@@ -69,8 +74,8 @@ func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
 
 // NewWebRTCOffer creates a peer connection and returns an SDP offer string.
 // Call SetAnswer with the remote answer to complete the handshake.
-func NewWebRTCOffer(ctx context.Context) (*WebRTCConn, string, error) {
-	pc, err := webrtc.NewPeerConnection(newWebRTCConfig())
+func NewWebRTCOffer(ctx context.Context, turnServers []config.TURNServer) (*WebRTCConn, string, error) {
+	pc, err := webrtc.NewPeerConnection(newWebRTCConfig(turnServers))
 	if err != nil {
 		return nil, "", fmt.Errorf("new peer connection: %w", err)
 	}
@@ -107,8 +112,8 @@ func NewWebRTCOffer(ctx context.Context) (*WebRTCConn, string, error) {
 }
 
 // NewWebRTCAnswer creates a peer connection from a remote offer and returns an SDP answer.
-func NewWebRTCAnswer(ctx context.Context, offerSDP string) (*WebRTCConn, string, error) {
-	pc, err := webrtc.NewPeerConnection(newWebRTCConfig())
+func NewWebRTCAnswer(ctx context.Context, offerSDP string, turnServers []config.TURNServer) (*WebRTCConn, string, error) {
+	pc, err := webrtc.NewPeerConnection(newWebRTCConfig(turnServers))
 	if err != nil {
 		return nil, "", fmt.Errorf("new peer connection: %w", err)
 	}

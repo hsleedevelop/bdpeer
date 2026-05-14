@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/hsleedevelop/bdpeer/internal/config"
 )
 
 // BLEWebRTCUpgrader manages WebRTC connection upgrades triggered by BLE discovery.
@@ -16,8 +18,9 @@ import (
 //	Responder (higher nickname):
 //	  BLE central subscribed → wait for offer → create answer → send via BLE → connected
 type BLEWebRTCUpgrader struct {
-	myNickname string
-	mu         sync.Mutex
+	myNickname  string
+	mu          sync.Mutex
+	TURNServers []config.TURNServer
 	// peerUUID → pending offer conn (initiator side, waiting for answer)
 	pendingOffers map[string]*WebRTCConn
 	// OnConnected is called when WebRTC data channel is ready.
@@ -68,7 +71,7 @@ func (u *BLEWebRTCUpgrader) OnBLEPeerFound(ctx context.Context, peerNickname, pe
 	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
 	go func() {
 		defer cancel()
-		conn, offerSDP, err := NewWebRTCOffer(ctx2)
+		conn, offerSDP, err := NewWebRTCOffer(ctx2, u.TURNServers)
 		if err != nil {
 			u.log("[BLE→WTC] offer 실패: " + err.Error())
 			return
@@ -109,7 +112,7 @@ func (u *BLEWebRTCUpgrader) OnSDPReceived(ctx context.Context, peerUUID, sdp str
 			ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 
-			conn, answerSDP, err := NewWebRTCAnswer(ctx2, sdp)
+			conn, answerSDP, err := NewWebRTCAnswer(ctx2, sdp, u.TURNServers)
 			if err != nil {
 				u.log("[BLE→WTC] answer 실패: " + err.Error())
 				return

@@ -188,7 +188,6 @@ type libp2pNotifee struct {
 
 func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
-	n.host.emitLog("연결됨: " + id.String()[:8] + "... (닉네임 교환 중)")
 	// Do NOT notify mgr here — bootstrap/relay peers would flood the peer list.
 	// Peer is added to the list only after Hello frame exchange (service.go OnFrame).
 	if n.host.OnConnected != nil {
@@ -197,7 +196,10 @@ func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 }
 func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
-	n.host.emitLog("연결 끊김: " + id.String()[:8] + "...")
+	// Only log disconnect for peers we actually knew (had a nickname).
+	if nick := n.host.NicknameFor(id); nick != "" {
+		n.host.emitLog("연결 끊김: " + nick)
+	}
 	n.mgr.Forget(id.String())
 }
 func (n *libp2pNotifee) Listen(_ network.Network, _ multiaddr.Multiaddr)      {}

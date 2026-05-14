@@ -8,10 +8,36 @@ import (
 	"runtime"
 )
 
+// TURNServer holds credentials for a TURN relay server.
+type TURNServer struct {
+	URL        string `json:"url"`
+	Username   string `json:"username"`
+	Credential string `json:"credential"`
+}
+
+// DefaultTURNServers are free public TURN relays used when no custom servers are configured.
+// Traffic is DTLS-encrypted end-to-end; the relay sees packet sizes/IPs but not content.
+var DefaultTURNServers = []TURNServer{
+	{URL: "turn:openrelay.metered.ca:80", Username: "openrelayproject", Credential: "openrelayproject"},
+	{URL: "turn:openrelay.metered.ca:443", Username: "openrelayproject", Credential: "openrelayproject"},
+	{URL: "turns:openrelay.metered.ca:443", Username: "openrelayproject", Credential: "openrelayproject"},
+}
+
 type Config struct {
-	Nickname      string `json:"nickname"`
-	DataDir       string `json:"data_dir"`
-	PrivateKeyB64 string `json:"private_key_b64,omitempty"`
+	Nickname      string       `json:"nickname"`
+	DataDir       string       `json:"data_dir"`
+	PrivateKeyB64 string       `json:"private_key_b64,omitempty"`
+	// TURNServers overrides the built-in Open Relay servers when non-empty.
+	// Set to your own coturn instance for full privacy.
+	TURNServers   []TURNServer `json:"turn_servers,omitempty"`
+}
+
+// ICEServers returns the TURN servers to use: custom if configured, otherwise defaults.
+func (c *Config) ICEServers() []TURNServer {
+	if len(c.TURNServers) > 0 {
+		return c.TURNServers
+	}
+	return DefaultTURNServers
 }
 
 func DefaultPath() string {
