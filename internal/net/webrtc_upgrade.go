@@ -33,6 +33,11 @@ type BLEWebRTCUpgrader struct {
 	SendAnswerFn func(sdp string) // broadcast to all centrals
 }
 
+const (
+	gatherTimeout  = 15 * time.Second // ICE candidate gathering (STUN + TURN)
+	connectTimeout = 90 * time.Second // full handshake + ICE connection via relay
+)
+
 func NewBLEWebRTCUpgrader(myNickname string) *BLEWebRTCUpgrader {
 	return &BLEWebRTCUpgrader{
 		myNickname:    myNickname,
@@ -68,10 +73,15 @@ func (u *BLEWebRTCUpgrader) OnBLEPeerFound(ctx context.Context, peerNickname, pe
 
 	u.log(fmt.Sprintf("[BLE] %s 발견 → WebRTC offer 생성 중", peerNickname))
 
-	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// connectCtx covers the entire handshake + ICE connection lifecycle.
+	connectCtx, connectCancel := context.WithTimeout(ctx, connectTimeout)
 	go func() {
-		defer cancel()
-		conn, offerSDP, err := NewWebRTCOffer(ctx2, u.TURNServers)
+		defer connectCancel()
+
+		// Gathering gets a shorter deadline: just candidate collection.
+		gatherCtx, gatherCancel := context.WithTimeout(connectCtx, gatherTimeout)
+		conn, offerSDP, err := NewWebRTCOffer(gatherCtx, u.TURNServers)
+		gatherCancel()
 		if err != nil {
 			u.log("[BLE→WTC] offer 실패: " + err.Error())
 			return
@@ -86,14 +96,14 @@ func (u *BLEWebRTCUpgrader) OnBLEPeerFound(ctx context.Context, peerNickname, pe
 			u.log("[BLE→WTC] offer 전송 완료 → answer 대기")
 		}
 
-		// Wait for connection (answer will arrive via OnSDPReceived)
+		// Wait for ICE connection — answer arrives via OnSDPReceived → SetAnswer.
 		select {
 		case <-conn.Connected():
 			u.log("[BLE→WTC] " + peerNickname + " 연결 성공!")
 			if u.OnConnected != nil {
 				u.OnConnected(peerUUID, peerNickname, conn)
 			}
-		case <-ctx2.Done():
+		case <-connectCtx.Done():
 			u.log("[BLE→WTC] 연결 타임아웃: " + peerNickname)
 			conn.Close()
 			u.mu.Lock()
@@ -109,10 +119,13 @@ func (u *BLEWebRTCUpgrader) OnSDPReceived(ctx context.Context, peerUUID, sdp str
 		// We are the responder: create answer.
 		u.log("[BLE→WTC] offer 수신 → answer 생성 중")
 		go func() {
-			ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
+			// Gathering uses short timeout; connection uses full connectTimeout.
+			connectCtx, connectCancel := context.WithTimeout(ctx, connectTimeout)
+			defer connectCancel()
 
-			conn, answerSDP, err := NewWebRTCAnswer(ctx2, sdp, u.TURNServers)
+			gatherCtx, gatherCancel := context.WithTimeout(connectCtx, gatherTimeout)
+			conn, answerSDP, err := NewWebRTCAnswer(gatherCtx, sdp, u.TURNServers)
+			gatherCancel()
 			if err != nil {
 				u.log("[BLE→WTC] answer 실패: " + err.Error())
 				return
@@ -129,7 +142,7 @@ func (u *BLEWebRTCUpgrader) OnSDPReceived(ctx context.Context, peerUUID, sdp str
 				if u.OnConnected != nil {
 					u.OnConnected(peerUUID, "", conn)
 				}
-			case <-ctx2.Done():
+			case <-connectCtx.Done():
 				u.log("[BLE→WTC] 연결 타임아웃 (응답자)")
 				conn.Close()
 			}
