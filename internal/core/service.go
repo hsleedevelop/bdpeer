@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -54,16 +55,23 @@ type SendRequest struct {
 }
 
 type Service struct {
-	cfg     *config.Config
-	cfgPath string
-	host    *bnet.Host
-	recvDir string
-	stops   []func()
-	events  chan Event
+	cfg         *config.Config
+	cfgPath     string
+	host        *bnet.Host
+	recvDir     string
+	stops       []func()
+	events      chan Event
+	mu          sync.Mutex
+	webrtcConns map[string]*bnet.WebRTCConn // peerUUID → active WebRTC conn
 }
 
 func NewService(cfg *config.Config, cfgPath string) *Service {
-	return &Service{cfg: cfg, cfgPath: cfgPath, events: make(chan Event, 256)}
+	return &Service{
+		cfg:         cfg,
+		cfgPath:     cfgPath,
+		events:      make(chan Event, 256),
+		webrtcConns: make(map[string]*bnet.WebRTCConn),
+	}
 }
 
 func (s *Service) Events() <-chan Event { return s.events }
@@ -201,13 +209,9 @@ func (s *Service) Start(ctx context.Context) error {
 	_ = discovery.ListenWSD(ctx, mgr)
 	_ = discovery.SendWSDHello(ctx, s.cfg.Nickname, listenPort(s.host))
 
-	// [3/4] BLE — 근거리 크로스망 (~10m)
+	// [3/4] BLE — 근거리 크로스망 (~10m), darwin: BLE+WebRTC upgrade
 	s.log("[3/4] BLE (근거리 ~10m) 시작...")
-	go func() {
-		if err := discovery.StartBLE(ctx, s.cfg.Nickname, mgr); err != nil {
-			s.log("    ✗ BLE 실패: " + err.Error())
-		}
-	}()
+	go s.startBLEWithWebRTC(ctx, mgr)
 
 	// [4/4] DHT — 인터넷
 	s.log("[4/4] DHT (인터넷) 시작... (약 10초 후 광고)")
@@ -249,6 +253,19 @@ func (s *Service) ConnectByNickname(ctx context.Context, nickname string) error 
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {
+	// Check if target is a BLE→WebRTC peer (fake ID prefix "ble-").
+	peerIDStr := string(req.To)
+	if len(peerIDStr) > 4 && peerIDStr[:4] == "ble-" {
+		peerUUID := peerIDStr[4:]
+		s.mu.Lock()
+		conn, ok := s.webrtcConns[peerUUID]
+		s.mu.Unlock()
+		if !ok {
+			return fmt.Errorf("WebRTC 연결 없음: %s", peerUUID)
+		}
+		return s.sendViaWebRTC(ctx, conn, req)
+	}
+
 	if req.File != "" {
 		pr, pw := io.Pipe()
 		go func() {
@@ -266,6 +283,26 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 
 	frame := proto.Frame{Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content}
 	return s.host.SendFrame(ctx, req.To, frame)
+}
+
+func (s *Service) sendViaWebRTC(_ context.Context, conn *bnet.WebRTCConn, req SendRequest) error {
+	if req.File != "" {
+		pr, pw := io.Pipe()
+		go func() {
+			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw)
+			pw.CloseWithError(err)
+		}()
+		_, err := io.Copy(conn, pr)
+		return err
+	}
+	var buf bytes.Buffer
+	if err := transfer.WriteFrame(&buf, proto.Frame{
+		Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content,
+	}); err != nil {
+		return err
+	}
+	_, err := conn.Write(buf.Bytes())
+	return err
 }
 
 func listenPort(h *bnet.Host) int {

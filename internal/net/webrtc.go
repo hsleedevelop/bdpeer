@@ -17,12 +17,14 @@ var stunServers = []string{
 
 // WebRTCConn wraps a pion PeerConnection with a reliable data channel.
 // It implements io.ReadWriteCloser so it can carry bdpeer protocol frames.
+// io.Pipe is used for the read path so transfer.ReadFrame (io.ReadFull) works correctly.
 type WebRTCConn struct {
-	pc      *webrtc.PeerConnection
-	dc      *webrtc.DataChannel
-	readBuf chan []byte
-	once    sync.Once
-	closed  chan struct{}
+	pc          *webrtc.PeerConnection
+	dc          *webrtc.DataChannel
+	pr          *io.PipeReader
+	pw          *io.PipeWriter
+	once        sync.Once
+	connectedCh chan struct{}
 }
 
 func newWebRTCConfig() webrtc.Configuration {
@@ -33,6 +35,38 @@ func newWebRTCConfig() webrtc.Configuration {
 	return webrtc.Configuration{ICEServers: servers}
 }
 
+func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
+	pr, pw := io.Pipe()
+	c := &WebRTCConn{
+		pc:          pc,
+		pr:          pr,
+		pw:          pw,
+		connectedCh: make(chan struct{}),
+	}
+	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		switch s {
+		case webrtc.PeerConnectionStateConnected:
+			c.once.Do(func() { close(c.connectedCh) })
+		case webrtc.PeerConnectionStateFailed,
+			webrtc.PeerConnectionStateDisconnected,
+			webrtc.PeerConnectionStateClosed:
+			pw.CloseWithError(io.ErrClosedPipe)
+		}
+	})
+	return c
+}
+
+func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
+	c.dc = dc
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		// Write each message into the pipe; io.ReadFull on the other end assembles frames.
+		c.pw.Write(msg.Data) //nolint:errcheck
+	})
+	dc.OnClose(func() {
+		c.pw.CloseWithError(io.EOF)
+	})
+}
+
 // NewWebRTCOffer creates a peer connection and returns an SDP offer string.
 // Call SetAnswer with the remote answer to complete the handshake.
 func NewWebRTCOffer(ctx context.Context) (*WebRTCConn, string, error) {
@@ -41,21 +75,14 @@ func NewWebRTCOffer(ctx context.Context) (*WebRTCConn, string, error) {
 		return nil, "", fmt.Errorf("new peer connection: %w", err)
 	}
 
-	conn := &WebRTCConn{pc: pc, readBuf: make(chan []byte, 64), closed: make(chan struct{})}
+	conn := newWebRTCConn(pc)
 
 	dc, err := pc.CreateDataChannel("bdpeer", nil)
 	if err != nil {
 		pc.Close()
 		return nil, "", fmt.Errorf("create data channel: %w", err)
 	}
-	conn.dc = dc
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		select {
-		case conn.readBuf <- msg.Data:
-		default:
-		}
-	})
-	dc.OnClose(func() { conn.once.Do(func() { close(conn.closed) }) })
+	conn.wireDataChannel(dc)
 
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
@@ -86,17 +113,10 @@ func NewWebRTCAnswer(ctx context.Context, offerSDP string) (*WebRTCConn, string,
 		return nil, "", fmt.Errorf("new peer connection: %w", err)
 	}
 
-	conn := &WebRTCConn{pc: pc, readBuf: make(chan []byte, 64), closed: make(chan struct{})}
+	conn := newWebRTCConn(pc)
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		conn.dc = dc
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			select {
-			case conn.readBuf <- msg.Data:
-			default:
-			}
-		})
-		dc.OnClose(func() { conn.once.Do(func() { close(conn.closed) }) })
+		conn.wireDataChannel(dc)
 	})
 
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
@@ -134,17 +154,13 @@ func (c *WebRTCConn) SetAnswer(answerSDP string) error {
 	})
 }
 
+// Connected returns a channel that closes when the ICE connection is established.
+func (c *WebRTCConn) Connected() <-chan struct{} {
+	return c.connectedCh
+}
+
 func (c *WebRTCConn) Read(p []byte) (int, error) {
-	select {
-	case data, ok := <-c.readBuf:
-		if !ok {
-			return 0, io.EOF
-		}
-		n := copy(p, data)
-		return n, nil
-	case <-c.closed:
-		return 0, io.EOF
-	}
+	return c.pr.Read(p)
 }
 
 func (c *WebRTCConn) Write(p []byte) (int, error) {
@@ -158,17 +174,6 @@ func (c *WebRTCConn) Write(p []byte) (int, error) {
 }
 
 func (c *WebRTCConn) Close() error {
-	c.once.Do(func() { close(c.closed) })
+	c.pw.CloseWithError(io.ErrClosedPipe)
 	return c.pc.Close()
-}
-
-// Connected returns true once ICE connection is established.
-func (c *WebRTCConn) Connected() <-chan struct{} {
-	ch := make(chan struct{})
-	c.pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
-		if s == webrtc.PeerConnectionStateConnected {
-			close(ch)
-		}
-	})
-	return ch
 }

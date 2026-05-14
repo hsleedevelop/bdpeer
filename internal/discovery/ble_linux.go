@@ -32,6 +32,10 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	return nil
 }
 
+func SetBLECallbacks(_ func(string, string), _ func(string, string, bool), _ func(string)) {}
+func BLEPeripheralSendSDP(_ string)          {}
+func BLECentralSendSDP(_ string, _ string)   {}
+
 func extractBLENickname(data []bluetooth.ManufacturerDataElement) string {
 	for _, d := range data {
 		if d.CompanyID == 0xFFFF && len(d.Data) > 0 {

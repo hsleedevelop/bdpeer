@@ -8,3 +8,7 @@ import "context"
 func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	return nil
 }
+
+func SetBLECallbacks(_ func(string, string), _ func(string, string, bool), _ func(string)) {}
+func BLEPeripheralSendSDP(_ string)          {}
+func BLECentralSendSDP(_ string, _ string)   {}
