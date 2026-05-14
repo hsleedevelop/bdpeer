@@ -7,12 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/chad/bdpeer/internal/config"
-	"github.com/chad/bdpeer/internal/discovery"
-	bnet "github.com/chad/bdpeer/internal/net"
-	"github.com/chad/bdpeer/internal/proto"
-	"github.com/chad/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/config"
+	"github.com/hsleedevelop/bdpeer/internal/discovery"
+	bnet "github.com/hsleedevelop/bdpeer/internal/net"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/transfer"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	maddr "github.com/multiformats/go-multiaddr"
@@ -28,19 +29,21 @@ const (
 	EventFileProgress EventType = "file_progress"
 	EventFileDone     EventType = "file_done"
 	EventError        EventType = "error"
+	EventReady        EventType = "ready"
 )
 
 type Event struct {
-	Type     EventType
-	Peer     bnet.PeerInfo
-	From     string
-	Content  string
-	Name     string
-	Size     int64
-	Received int64
-	Total    int64
-	Path     string
-	Err      error
+	Type      EventType
+	Peer      bnet.PeerInfo
+	From      string
+	Content   string
+	Name      string
+	Size      int64
+	Received  int64
+	Total     int64
+	Path      string
+	Err       error
+	LocalAddr string
 }
 
 type SendRequest struct {
@@ -84,6 +87,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("new host: %w", err)
 	}
+	s.events <- Event{Type: EventReady, LocalAddr: bnet.FirstTCPAddr(s.host)}
 
 	if s.recvDir == "" {
 		if s.cfg.DataDir != "" {
@@ -95,10 +99,25 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	_ = os.MkdirAll(s.recvDir, 0o755)
 
-	s.host.OnFrame = func(_ peer.ID, frame proto.Frame) {
+	s.host.OnConnected = func(id peer.ID) {
+		connCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		_ = s.host.SendFrame(connCtx, id, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
+	}
+
+	s.host.OnFrame = func(id peer.ID, frame proto.Frame) {
 		switch frame.Type {
 		case proto.FrameText:
 			s.events <- Event{Type: EventTextReceived, From: frame.From, Content: frame.Content}
+		case proto.FrameHello:
+			if frame.From == "" {
+				return
+			}
+			s.host.RememberNickname(id, frame.From)
+			addrs := s.host.Libp2p.Peerstore().Addrs(id)
+			s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
+				ID: id, Nickname: frame.From, Addrs: addrs, Source: "dht",
+			}}
 		}
 	}
 	s.host.OnFileStream = func(_ peer.ID, startFrame proto.Frame, r io.Reader) {
@@ -133,6 +152,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.events <- Event{Type: EventPeerLost, Peer: bnet.PeerInfo{ID: p.ID}}
 	}
 	s.host.AttachDiscovery(mgr)
+	s.host.StartDHTDiscovery(ctx, mgr)
 
 	if stop, err := discovery.BrowseBonjour(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
@@ -162,6 +182,14 @@ func (s *Service) Stop() error {
 		return s.host.Close()
 	}
 	return nil
+}
+
+func (s *Service) Connect(ctx context.Context, addr string) error {
+	if s.host == nil {
+		return fmt.Errorf("service not started")
+	}
+	_, err := s.host.ConnectByAddr(ctx, addr)
+	return err
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {

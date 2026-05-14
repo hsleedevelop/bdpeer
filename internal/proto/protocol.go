@@ -10,6 +10,7 @@ const (
 	FrameFileStart FrameType = "file_start"
 	FrameFileChunk FrameType = "file_chunk"
 	FrameFileEnd   FrameType = "file_end"
+	FrameHello     FrameType = "hello"
 )
 
 type Frame struct {

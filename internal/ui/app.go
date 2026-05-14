@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/chad/bdpeer/internal/core"
-	bnet "github.com/chad/bdpeer/internal/net"
+	"github.com/hsleedevelop/bdpeer/internal/core"
+	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -26,11 +26,12 @@ type MsgFileStart struct {
 	Size       int64
 }
 type MsgFileProgress struct {
-	From             string
-	Received, Total  int64
+	From            string
+	Received, Total int64
 }
 type MsgFileDone struct{ From, Name, SavePath string }
 type MsgError struct{ Err error }
+type MsgLocalAddr struct{ Addr string }
 
 type Message struct {
 	From    string
@@ -50,6 +51,7 @@ type fileXfer struct {
 type Model struct {
 	screen     Screen
 	nickname   string
+	localAddr  string
 	peers      []bnet.PeerInfo
 	activePeer *bnet.PeerInfo
 	messages   []Message
@@ -60,6 +62,7 @@ type Model struct {
 	fileXfer   *fileXfer
 	sendCh     chan<- core.SendRequest
 	nickCh     chan<- string
+	connectCh  chan<- string
 }
 
 func New(nickname string) Model {
@@ -70,10 +73,11 @@ func New(nickname string) Model {
 	return Model{screen: screen, nickname: nickname}
 }
 
-func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string) Model {
+func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string, connectCh chan<- string) Model {
 	m := New(nickname)
 	m.sendCh = sendCh
 	m.nickCh = nickCh
+	m.connectCh = connectCh
 	return m
 }
 
@@ -104,6 +108,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case MsgError:
 		m.err = msg.Err
+	case MsgLocalAddr:
+		m.localAddr = msg.Addr
 	}
 	return m, nil
 }
@@ -127,11 +133,15 @@ func mainView(m Model) string {
 	left := peerListView(m, leftW, m.height-2)
 	right := chatView(m, rightW, m.height-2)
 
+	addrHint := ""
+	if m.localAddr != "" {
+		addrHint = "  " + m.localAddr
+	}
 	title := lipgloss.NewStyle().
 		Width(m.width).
 		Foreground(colorPrimary).
 		Bold(true).
-		Render(fmt.Sprintf(" bdpeer  [%s]", m.nickname))
+		Render(fmt.Sprintf(" bdpeer  [%s]%s", m.nickname, addrHint))
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	return title + "\n" + row
@@ -154,7 +164,21 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activePeer = nextPeer(m.peers, m.activePeer)
 	case tea.KeyEnter:
 		content := strings.TrimSpace(m.inputBuf)
-		if content == "" || m.activePeer == nil || m.activePeer.ID == "" {
+		if content == "" {
+			return m, nil
+		}
+		if strings.HasPrefix(content, "/connect ") {
+			addr := strings.TrimSpace(strings.TrimPrefix(content, "/connect "))
+			if m.connectCh != nil && addr != "" {
+				select {
+				case m.connectCh <- addr:
+				default:
+				}
+			}
+			m.inputBuf = ""
+			return m, nil
+		}
+		if m.activePeer == nil || m.activePeer.ID == "" {
 			return m, nil
 		}
 		if strings.HasPrefix(content, "/file ") {

@@ -6,9 +6,9 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/chad/bdpeer/internal/config"
-	"github.com/chad/bdpeer/internal/core"
-	"github.com/chad/bdpeer/internal/ui"
+	"github.com/hsleedevelop/bdpeer/internal/config"
+	"github.com/hsleedevelop/bdpeer/internal/core"
+	"github.com/hsleedevelop/bdpeer/internal/ui"
 )
 
 // Set at build time via ldflags.
@@ -32,14 +32,15 @@ func main() {
 	svc := core.NewService(cfg, cfgPath)
 	sendCh := make(chan core.SendRequest, 16)
 	nickCh := make(chan string, 1)
+	connectCh := make(chan string, 4)
 	if cfg.Nickname != "" {
 		nickCh <- cfg.Nickname
 	}
 
-	model := ui.NewWithChannels(cfg.Nickname, sendCh, nickCh)
+	model := ui.NewWithChannels(cfg.Nickname, sendCh, nickCh, connectCh)
 	prog := tea.NewProgram(model, tea.WithAltScreen())
 
-	go startCoreAfterNickname(ctx, svc, nickCh, sendCh, prog, cfg, cfgPath)
+	go startCoreAfterNickname(ctx, svc, nickCh, sendCh, connectCh, prog, cfg, cfgPath)
 	go forwardCoreEvents(svc.Events(), prog)
 
 	if _, err := prog.Run(); err != nil {
@@ -55,6 +56,7 @@ func startCoreAfterNickname(
 	svc *core.Service,
 	nickCh <-chan string,
 	sendCh <-chan core.SendRequest,
+	connectCh <-chan string,
 	prog *tea.Program,
 	cfg *config.Config,
 	cfgPath string,
@@ -82,6 +84,12 @@ func startCoreAfterNickname(
 					prog.Send(ui.MsgError{Err: err})
 				}
 			}(req)
+		case addr := <-connectCh:
+			go func(a string) {
+				if err := svc.Connect(ctx, a); err != nil {
+					prog.Send(ui.MsgError{Err: err})
+				}
+			}(addr)
 		case <-ctx.Done():
 			return
 		}
@@ -105,6 +113,8 @@ func forwardCoreEvents(events <-chan core.Event, prog *tea.Program) {
 			prog.Send(ui.MsgFileDone{From: ev.From, Name: ev.Name, SavePath: ev.Path})
 		case core.EventError:
 			prog.Send(ui.MsgError{Err: ev.Err})
+		case core.EventReady:
+			prog.Send(ui.MsgLocalAddr{Addr: ev.LocalAddr})
 		}
 	}
 }

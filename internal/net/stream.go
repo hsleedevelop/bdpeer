@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chad/bdpeer/internal/proto"
-	"github.com/chad/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/transfer"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2p "github.com/libp2p/go-libp2p"
@@ -13,10 +14,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
+	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/chad/bdpeer/internal/discovery"
-	"github.com/chad/bdpeer/internal/proto"
+	"github.com/hsleedevelop/bdpeer/internal/discovery"
+	"github.com/hsleedevelop/bdpeer/internal/proto"
 )
 
 type PeerInfo struct {
@@ -31,6 +34,7 @@ type Host struct {
 	Nickname     string
 	OnFrame      func(peer.ID, proto.Frame)
 	OnFileStream func(peer.ID, proto.Frame, io.Reader)
+	OnConnected  func(peer.ID)
 	mu           sync.RWMutex
 	nicknames    map[peer.ID]string
 	dht          *dht.IpfsDHT
@@ -155,12 +159,63 @@ func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 	nick := n.host.NicknameFor(id)
 	addrs := n.host.Libp2p.Peerstore().Addrs(id)
 	n.mgr.Notify(discovery.DiscoveredPeer{ID: id, Nickname: nick, Addrs: addrs, Source: "dht"})
+	if n.host.OnConnected != nil {
+		go n.host.OnConnected(id)
+	}
 }
 func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
 	n.mgr.Forget(conn.RemotePeer().String())
 }
 func (n *libp2pNotifee) Listen(_ network.Network, _ multiaddr.Multiaddr)      {}
 func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
+
+const dhtNamespace = "bdpeer/v1"
+
+// StartDHTDiscovery advertises on the DHT and periodically finds peers.
+func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
+	rd := drouting.NewRoutingDiscovery(h.dht)
+	dutil.Advertise(ctx, rd, dhtNamespace)
+
+	go func() {
+		// Give DHT time to bootstrap before first search.
+		select {
+		case <-time.After(10 * time.Second):
+		case <-ctx.Done():
+			return
+		}
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			h.findAndConnectDHTPeers(ctx, rd, mgr)
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingDiscovery, mgr *discovery.Manager) {
+	findCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	peers, err := dutil.FindPeers(findCtx, rd, dhtNamespace)
+	if err != nil {
+		return
+	}
+	for _, p := range peers {
+		if p.ID == h.Libp2p.ID() || len(p.Addrs) == 0 {
+			continue
+		}
+		if h.Libp2p.Network().Connectedness(p.ID) == network.Connected {
+			continue
+		}
+		connCtx, connCancel := context.WithTimeout(ctx, 15*time.Second)
+		_ = h.Libp2p.Connect(connCtx, p)
+		connCancel()
+	}
+}
 
 // FirstTCPAddr returns the first TCP listen multiaddr of h (with peer ID appended).
 func FirstTCPAddr(h *Host) string {
