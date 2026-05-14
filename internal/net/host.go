@@ -115,6 +115,15 @@ func NewHostWithIdentity(ctx context.Context, nickname string, priv crypto.PrivK
 		return nil, fmt.Errorf("DHT bootstrap: %w", err)
 	}
 
+	// Explicitly connect to bootstrap peers so the routing table populates quickly.
+	for _, addr := range dht.DefaultBootstrapPeers {
+		pi, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			continue
+		}
+		go h.Connect(ctx, *pi) //nolint:errcheck
+	}
+
 	return &Host{Libp2p: h, Nickname: nickname, nicknames: make(map[peer.ID]string), dht: kd}, nil
 }
 
@@ -215,6 +224,12 @@ func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 			return
 		}
 		// Advertise AFTER bootstrap so the DHT is ready to store the provide record
+		rtSize := h.dht.RoutingTable().Size()
+		if rtSize == 0 {
+			h.emitLog("DHT 경고: 라우팅 테이블 비어 있음 — 인터넷 연결 또는 방화벽을 확인하세요")
+		} else {
+			h.emitLog(fmt.Sprintf("DHT 라우팅 테이블: %d 피어 연결됨", rtSize))
+		}
 		dutil.Advertise(ctx, rd, dhtNamespace)
 		addrs := h.Libp2p.Addrs()
 		addrStrs := make([]string, 0, len(addrs))
