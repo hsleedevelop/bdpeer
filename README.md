@@ -133,7 +133,7 @@ make build-win-ble
 
 > **AirDrop**: Apple 전용 AWDL 프로토콜 사용 — 구현 불가. 같은 Wi-Fi에서 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
-> **DHT**: 공개 IPFS DHT 네트워크(`bdpeer/v1` 네임스페이스)를 사용. 양측 모두 인터넷 접근이 가능해야 합니다. NAT 홀펀칭(DCUtR)을 지원하여 서로 다른 공유기(NAT) 뒤에 있는 경우에도 연결을 시도합니다.
+> **DHT**: 공개 IPFS DHT 네트워크(`bdpeer/v1` 네임스페이스)를 사용. 양측 모두 인터넷 접근이 가능해야 합니다. NAT 홀펀칭(DCUtR) + AutoRelay를 지원하여 서로 다른 공유기(NAT) 뒤에 있어도 IPFS 중계 노드를 경유해 자동으로 연결됩니다.
 
 ## 기술 스택
 
