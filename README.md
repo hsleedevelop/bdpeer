@@ -130,9 +130,12 @@ make build-win-ble
 | mDNS/Bonjour (`_bdpeer._tcp`) | macOS, iOS, Android, Windows 10+ | 로컬 Wi-Fi 자동 발견 |
 | SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
-| BLE | macOS, Linux, Windows (`-tags ble`) | 근거리 근접 발견 |
+| BLE | macOS (`-tags ble`, CoreBluetooth) | 근거리 근접 발견 + WebRTC 업그레이드 |
+| BLE (스캔 전용) | Linux, Windows (`-tags ble`, tinygo) | 근거리 근접 발견 |
+| BLE→WebRTC | macOS (`-tags ble`) | BLE 시그널링으로 WebRTC 연결 수립 — **다른 서브넷·NAT 환경에서도 동작** |
 | libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
+> **BLE→WebRTC**: macOS에서 `-tags ble` 빌드 시 BLE를 WebRTC 시그널링 채널로 사용합니다. STUN/ICE NAT 홀펀칭으로 서로 다른 공유기(NAT)에 있는 두 기기가 직접 연결됩니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer 생성), 높은 닉네임이 Responder(answer 생성)로 역할이 고정됩니다.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 사용 — 구현 불가. 같은 Wi-Fi에서 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
 > **DHT**: 공개 IPFS DHT 네트워크(`bdpeer/v1` 네임스페이스)를 사용. 양측 모두 인터넷 접근이 가능해야 합니다. NAT 홀펀칭(DCUtR) + AutoRelay를 지원하여 서로 다른 공유기(NAT) 뒤에 있어도 IPFS 중계 노드를 경유해 자동으로 연결됩니다.
@@ -144,7 +147,9 @@ make build-win-ble
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI 프레임워크
 - [zeroconf](https://github.com/grandcat/zeroconf) — mDNS/Bonjour
 - [go-ssdp](https://github.com/koron/go-ssdp) — SSDP/UPnP
-- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE (`-tags ble`)
+- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE scan, Linux/Windows (`-tags ble`)
+- [CoreBluetooth](https://developer.apple.com/documentation/corebluetooth) — BLE peripheral+central, macOS CGo (`-tags ble`)
+- [pion/webrtc](https://github.com/pion/webrtc) — WebRTC NAT traversal (`v4`)
 
 ## 라이선스
 
