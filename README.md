@@ -91,7 +91,7 @@ make build
 | `Tab` | 채팅 ↔ 로그 패널 전환 |
 | `/connect <multiaddr>` | 주소로 피어 직접 연결 |
 | `/file <경로>` | 파일 전송 |
-| `Ctrl+C` | 종료 |
+| `Ctrl+C` / `Esc` / `q` | 종료 |
 
 ### 다른 서브넷 피어와 연결하기
 
