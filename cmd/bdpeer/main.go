@@ -11,6 +11,13 @@ import (
 	"github.com/chad/bdpeer/internal/ui"
 )
 
+// Set at build time via ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	cfgPath := config.DefaultPath()
 	cfg, err := config.Load(cfgPath)

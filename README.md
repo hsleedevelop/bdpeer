@@ -1,5 +1,9 @@
 # bdpeer
 
+![Release](https://github.com/hsleedevelop/bdpeer/actions/workflows/release.yml/badge.svg)
+![Go Version](https://img.shields.io/github/go-mod/go-version/hsleedevelop/bdpeer)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hsleedevelop/bdpeer)](https://goreportcard.com/report/github.com/hsleedevelop/bdpeer)
+
 로컬 네트워크에서 피어를 자동으로 발견하고 텍스트 메시지와 파일을 주고받는 크로스 플랫폼 P2P TUI 앱.
 
 ```

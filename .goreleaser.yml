@@ -1,0 +1,77 @@
+version: 2
+
+project_name: bdpeer
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: bdpeer
+    main: ./cmd/bdpeer
+    binary: bdpeer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: bdpeer-ble
+    main: ./cmd/bdpeer
+    binary: bdpeer-ble
+    tags:
+      - ble
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - id: default
+    ids:
+      - bdpeer
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+  - id: ble
+    ids:
+      - bdpeer-ble
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}-ble_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: hsleedevelop
+    name: bdpeer
+  draft: false
+  prerelease: auto
