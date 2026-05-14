@@ -33,28 +33,22 @@ func peerListView(m Model, width, height int) string {
 	}
 	sb.WriteString("\n")
 
-	if len(m.peers) == 0 {
-		sb.WriteString(StyleHelp.Render("searching...") + "\n")
-	}
+	visible := 0
 	for _, p := range m.peers {
-		name := p.Nickname
-		if name == "" && p.ID != "" {
-			s := p.ID.String()
-			if len(s) > 8 {
-				name = s[:8]
-			} else {
-				name = s
-			}
-		} else if name == "" {
-			name = p.Source
+		if p.Nickname == "" {
+			continue // 닉네임 교환 전 피어는 표시하지 않음
 		}
+		visible++
 		cursor := "  "
 		if m.activePeer != nil && m.activePeer.ID == p.ID {
 			cursor = "▶ "
 		}
 		badge := sourceBadge(p.Source)
-		line := fmt.Sprintf("%s%s %s", cursor, StylePeerOnline.Render(name), StyleHelp.Render(badge))
+		line := fmt.Sprintf("%s%s %s", cursor, StylePeerOnline.Render(p.Nickname), StyleHelp.Render(badge))
 		sb.WriteString(line + "\n")
+	}
+	if visible == 0 {
+		sb.WriteString(StyleHelp.Render("searching...") + "\n")
 	}
 
 	sb.WriteString("\n" + StyleHelp.Render("↑/↓ select  q quit"))
