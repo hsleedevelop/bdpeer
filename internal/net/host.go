@@ -16,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/hsleedevelop/bdpeer/internal/discovery"
@@ -78,6 +79,26 @@ func NewHostWithIdentity(ctx context.Context, nickname string, priv crypto.PrivK
 		),
 		libp2p.NATPortMap(),
 		libp2p.EnableHolePunching(),
+		libp2p.EnableAutoRelay(autorelay.WithPeerSource(
+			func(ctx context.Context, numPeers int) <-chan peer.AddrInfo {
+				ch := make(chan peer.AddrInfo)
+				go func() {
+					defer close(ch)
+					for _, maddr := range dht.DefaultBootstrapPeers {
+						pi, err := peer.AddrInfoFromP2pAddr(maddr)
+						if err != nil {
+							continue
+						}
+						select {
+						case ch <- *pi:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}()
+				return ch
+			},
+		)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new libp2p host: %w", err)
@@ -247,13 +268,27 @@ func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingD
 	}
 }
 
-// FirstTCPAddr returns the first TCP listen multiaddr of h (with peer ID appended).
+// FirstTCPAddr returns the best TCP listen multiaddr of h (with peer ID appended).
+// Prefers non-loopback addresses so the displayed address is reachable from other machines.
 func FirstTCPAddr(h *Host) string {
 	pid := h.Libp2p.ID()
+	var loopback string
 	for _, a := range h.Libp2p.Addrs() {
-		if _, err := a.ValueForProtocol(multiaddr.P_TCP); err == nil {
-			return a.String() + "/p2p/" + pid.String()
+		if _, err := a.ValueForProtocol(multiaddr.P_TCP); err != nil {
+			continue
 		}
+		ip4, err := a.ValueForProtocol(multiaddr.P_IP4)
+		if err != nil {
+			continue
+		}
+		full := a.String() + "/p2p/" + pid.String()
+		if ip4 == "127.0.0.1" {
+			if loopback == "" {
+				loopback = full
+			}
+			continue
+		}
+		return full
 	}
-	return ""
+	return loopback
 }
