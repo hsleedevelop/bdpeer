@@ -30,6 +30,7 @@ const (
 	EventFileDone     EventType = "file_done"
 	EventError        EventType = "error"
 	EventReady        EventType = "ready"
+	EventLog          EventType = "log"
 )
 
 type Event struct {
@@ -67,6 +68,13 @@ func NewService(cfg *config.Config, cfgPath string) *Service {
 
 func (s *Service) Events() <-chan Event { return s.events }
 
+func (s *Service) log(msg string) {
+	select {
+	case s.events <- Event{Type: EventLog, Content: msg}:
+	default:
+	}
+}
+
 func (s *Service) Start(ctx context.Context) error {
 	if s.cfg.PrivateKeyB64 == "" {
 		encoded, err := bnet.GenerateIdentityB64()
@@ -83,11 +91,14 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("load identity: %w", err)
 	}
 
+	s.log("libp2p 시작 중...")
 	s.host, err = bnet.NewHostWithIdentity(ctx, s.cfg.Nickname, priv)
 	if err != nil {
 		return fmt.Errorf("new host: %w", err)
 	}
-	s.events <- Event{Type: EventReady, LocalAddr: bnet.FirstTCPAddr(s.host)}
+	localAddr := bnet.FirstTCPAddr(s.host)
+	s.events <- Event{Type: EventReady, LocalAddr: localAddr}
+	s.log("호스트 준비 완료 → " + localAddr)
 
 	if s.recvDir == "" {
 		if s.cfg.DataDir != "" {
@@ -98,6 +109,8 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 	_ = os.MkdirAll(s.recvDir, 0o755)
+
+	s.host.OnLog = s.log
 
 	s.host.OnConnected = func(id peer.ID) {
 		connCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -115,6 +128,7 @@ func (s *Service) Start(ctx context.Context) error {
 			}
 			s.host.RememberNickname(id, frame.From)
 			addrs := s.host.Libp2p.Peerstore().Addrs(id)
+			s.log("닉네임 수신: " + frame.From + " (" + id.String()[:8] + "...)")
 			s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
 				ID: id, Nickname: frame.From, Addrs: addrs, Source: "dht",
 			}}
@@ -144,6 +158,11 @@ func (s *Service) Start(ctx context.Context) error {
 		if p.ID != "" && p.Nickname != "" {
 			s.host.RememberNickname(p.ID, p.Nickname)
 		}
+		nick := p.Nickname
+		if nick == "" {
+			nick = p.ID.String()[:8] + "..."
+		}
+		s.log("[" + p.Source + "] 피어 발견: " + nick)
 		s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
 			ID: p.ID, Nickname: p.Nickname, Addrs: p.Addrs, Source: p.Source,
 		}}
@@ -151,19 +170,27 @@ func (s *Service) Start(ctx context.Context) error {
 	mgr.OnPeerLost = func(p discovery.DiscoveredPeer) {
 		s.events <- Event{Type: EventPeerLost, Peer: bnet.PeerInfo{ID: p.ID}}
 	}
+
 	s.host.AttachDiscovery(mgr)
+	s.log("DHT 광고 시작 중... (부트스트랩 후 약 10초)")
 	s.host.StartDHTDiscovery(ctx, mgr)
 
 	if stop, err := discovery.BrowseBonjour(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
 		if server, err := discovery.RegisterBonjour(s.cfg.Nickname, listenPort(s.host), hostFullAddrs(s.host)); err == nil {
 			s.stops = append(s.stops, func() { server.Shutdown() })
+			s.log("Bonjour 등록 완료 (로컬 mDNS)")
+		} else {
+			s.log("Bonjour 등록 실패: " + err.Error())
 		}
+	} else {
+		s.log("Bonjour 브라우징 실패: " + err.Error())
 	}
 	if stop, err := discovery.SearchSSDP(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
 		if advStop, err := discovery.AdvertiseSSDP(ctx, s.cfg.Nickname, listenPort(s.host)); err == nil {
 			s.stops = append(s.stops, advStop)
+			s.log("SSDP 광고 시작")
 		}
 	}
 	_ = discovery.ListenWSD(ctx, mgr)

@@ -144,6 +144,8 @@ func forwardCoreEvents(events <-chan core.Event, prog *tea.Program) {
 			prog.Send(ui.MsgError{Err: ev.Err})
 		case core.EventReady:
 			prog.Send(ui.MsgLocalAddr{Addr: ev.LocalAddr})
+		case core.EventLog:
+			prog.Send(ui.MsgLog{Text: ev.Content})
 		}
 	}
 }

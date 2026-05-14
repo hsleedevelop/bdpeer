@@ -35,6 +35,7 @@ type Host struct {
 	OnFrame      func(peer.ID, proto.Frame)
 	OnFileStream func(peer.ID, proto.Frame, io.Reader)
 	OnConnected  func(peer.ID)
+	OnLog        func(string)
 	mu           sync.RWMutex
 	nicknames    map[peer.ID]string
 	dht          *dht.IpfsDHT
@@ -158,31 +159,41 @@ func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
 	nick := n.host.NicknameFor(id)
 	addrs := n.host.Libp2p.Peerstore().Addrs(id)
+	n.host.emitLog("연결됨: " + id.String()[:8] + "... (닉네임 교환 중)")
 	n.mgr.Notify(discovery.DiscoveredPeer{ID: id, Nickname: nick, Addrs: addrs, Source: "dht"})
 	if n.host.OnConnected != nil {
 		go n.host.OnConnected(id)
 	}
 }
 func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
-	n.mgr.Forget(conn.RemotePeer().String())
+	id := conn.RemotePeer()
+	n.host.emitLog("연결 끊김: " + id.String()[:8] + "...")
+	n.mgr.Forget(id.String())
 }
 func (n *libp2pNotifee) Listen(_ network.Network, _ multiaddr.Multiaddr)      {}
 func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
 
 const dhtNamespace = "bdpeer/v1"
 
+func (h *Host) emitLog(msg string) {
+	if h.OnLog != nil {
+		h.OnLog(msg)
+	}
+}
+
 // StartDHTDiscovery advertises on the DHT and periodically finds peers.
 func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 	rd := drouting.NewRoutingDiscovery(h.dht)
 	dutil.Advertise(ctx, rd, dhtNamespace)
+	h.emitLog("DHT 광고 시작 (bdpeer/v1) — 부트스트랩 대기 중...")
 
 	go func() {
-		// Give DHT time to bootstrap before first search.
 		select {
 		case <-time.After(10 * time.Second):
 		case <-ctx.Done():
 			return
 		}
+		h.emitLog("DHT 준비 완료, 피어 검색 시작")
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -197,13 +208,17 @@ func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 }
 
 func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingDiscovery, mgr *discovery.Manager) {
+	h.emitLog("DHT 피어 검색 중...")
 	findCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	peers, err := dutil.FindPeers(findCtx, rd, dhtNamespace)
 	if err != nil {
+		h.emitLog("DHT 검색 실패: " + err.Error())
 		return
 	}
+
+	newPeers := 0
 	for _, p := range peers {
 		if p.ID == h.Libp2p.ID() || len(p.Addrs) == 0 {
 			continue
@@ -211,9 +226,16 @@ func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingD
 		if h.Libp2p.Network().Connectedness(p.ID) == network.Connected {
 			continue
 		}
+		newPeers++
+		h.emitLog("DHT 발견 → " + p.ID.String()[:8] + "... 연결 시도 중")
 		connCtx, connCancel := context.WithTimeout(ctx, 15*time.Second)
-		_ = h.Libp2p.Connect(connCtx, p)
+		if err := h.Libp2p.Connect(connCtx, p); err != nil {
+			h.emitLog("DHT 연결 실패: " + p.ID.String()[:8] + "... — " + err.Error())
+		}
 		connCancel()
+	}
+	if newPeers == 0 {
+		h.emitLog("DHT: 새 피어 없음 (30초 후 재시도)")
 	}
 }
 

@@ -5,6 +5,22 @@ import (
 	"strings"
 )
 
+func logView(m Model, width, height int) string {
+	header := StyleTitle.Render("Log")
+	lineHeight := height - 3
+	start := 0
+	if len(m.logs) > lineHeight {
+		start = len(m.logs) - lineHeight
+	}
+	var lines []string
+	for _, l := range m.logs[start:] {
+		lines = append(lines, StyleHelp.Render(l))
+	}
+	help := StyleHelp.Render("Tab: 채팅으로 전환  /connect <addr>: 수동 연결")
+	body := header + "\n" + strings.Join(lines, "\n") + "\n" + help
+	return StylePanel.Width(width).Height(height).Render(body)
+}
+
 func chatView(m Model, width, height int) string {
 	if m.activePeer == nil {
 		empty := StyleHelp.Render("Select a peer to start chatting")

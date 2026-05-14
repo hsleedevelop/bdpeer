@@ -32,6 +32,7 @@ type MsgFileProgress struct {
 type MsgFileDone struct{ From, Name, SavePath string }
 type MsgError struct{ Err error }
 type MsgLocalAddr struct{ Addr string }
+type MsgLog struct{ Text string }
 
 type Message struct {
 	From    string
@@ -55,6 +56,8 @@ type Model struct {
 	peers      []bnet.PeerInfo
 	activePeer *bnet.PeerInfo
 	messages   []Message
+	logs       []string
+	showLog    bool
 	inputBuf   string
 	width      int
 	height     int
@@ -110,6 +113,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 	case MsgLocalAddr:
 		m.localAddr = msg.Addr
+	case MsgLog:
+		m.logs = append(m.logs, msg.Text)
+		if len(m.logs) > 200 {
+			m.logs = m.logs[len(m.logs)-200:]
+		}
 	}
 	return m, nil
 }
@@ -131,17 +139,27 @@ func mainView(m Model) string {
 	rightW := m.width - leftW - 4
 
 	left := peerListView(m, leftW, m.height-2)
-	right := chatView(m, rightW, m.height-2)
+
+	var right string
+	if m.showLog || m.activePeer == nil {
+		right = logView(m, rightW, m.height-2)
+	} else {
+		right = chatView(m, rightW, m.height-2)
+	}
 
 	addrHint := ""
 	if m.localAddr != "" {
 		addrHint = "  " + m.localAddr
 	}
+	logToggle := "  [Tab: 로그]"
+	if m.showLog {
+		logToggle = "  [Tab: 채팅]"
+	}
 	title := lipgloss.NewStyle().
 		Width(m.width).
 		Foreground(colorPrimary).
 		Bold(true).
-		Render(fmt.Sprintf(" bdpeer  [%s]%s", m.nickname, addrHint))
+		Render(fmt.Sprintf(" bdpeer  [%s]%s%s", m.nickname, addrHint, logToggle))
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	return title + "\n" + row
@@ -158,6 +176,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
+	case tea.KeyTab:
+		m.showLog = !m.showLog
+		return m, nil
 	case tea.KeyUp:
 		m.activePeer = prevPeer(m.peers, m.activePeer)
 	case tea.KeyDown:
