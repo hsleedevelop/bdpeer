@@ -2,6 +2,7 @@ package net
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -61,6 +62,26 @@ func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
 	return c
 }
 
+func waitForICEGathering(ctx context.Context, pc *webrtc.PeerConnection) (string, error) {
+	gathering := webrtc.GatheringCompletePromise(pc)
+	select {
+	case <-gathering:
+	case <-ctx.Done():
+		// Keep the handshake moving with candidates gathered so far. Some
+		// networks block STUN/TURN lookups long enough to hit our deadline; in
+		// that case dropping the SDP prevents BLE signalling from ever starting.
+		// Do not close the peer connection here: the caller still needs it to
+		// complete the handshake with this partial SDP, and later timeout paths
+		// close the returned WebRTCConn if connection establishment fails.
+	}
+
+	desc := pc.LocalDescription()
+	if desc == nil || desc.SDP == "" {
+		return "", errors.New("no local description after ICE gathering")
+	}
+	return desc.SDP, nil
+}
+
 func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
 	c.dc = dc
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -99,18 +120,13 @@ func NewWebRTCOffer(ctx context.Context, turnServers []config.TURNServer) (*WebR
 		return nil, "", fmt.Errorf("set local description: %w", err)
 	}
 
-	// Wait for ICE gathering to complete (or context cancel).
-	// pc.Close() is called asynchronously to avoid blocking if pion's internal
-	// TURN allocation goroutines are stuck on network I/O with no cancellation.
-	gathering := webrtc.GatheringCompletePromise(pc)
-	select {
-	case <-gathering:
-	case <-ctx.Done():
+	offerSDP, err := waitForICEGathering(ctx, pc)
+	if err != nil {
 		go pc.Close()
-		return nil, "", ctx.Err()
+		return nil, "", err
 	}
 
-	return conn, pc.LocalDescription().SDP, nil
+	return conn, offerSDP, nil
 }
 
 // NewWebRTCAnswer creates a peer connection from a remote offer and returns an SDP answer.
@@ -143,15 +159,13 @@ func NewWebRTCAnswer(ctx context.Context, offerSDP string, turnServers []config.
 		return nil, "", fmt.Errorf("set local description: %w", err)
 	}
 
-	gathering := webrtc.GatheringCompletePromise(pc)
-	select {
-	case <-gathering:
-	case <-ctx.Done():
+	answerSDP, err := waitForICEGathering(ctx, pc)
+	if err != nil {
 		go pc.Close()
-		return nil, "", ctx.Err()
+		return nil, "", err
 	}
 
-	return conn, pc.LocalDescription().SDP, nil
+	return conn, answerSDP, nil
 }
 
 // SetAnswer completes the offer side handshake with the remote answer SDP.

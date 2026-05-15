@@ -11,6 +11,7 @@ import (
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/hsleedevelop/bdpeer/internal/proto"
 	"github.com/hsleedevelop/bdpeer/internal/transfer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // startBLEWithWebRTC wires CoreBluetooth BLE discovery to the BLEWebRTCUpgrader,
@@ -47,10 +48,17 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 // handleWebRTCConn registers a newly connected WebRTC peer with the Manager,
 // exchanges Hello frames, and handles incoming frames (text/file).
 func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname string, conn *bnet.WebRTCConn, mgr *discovery.Manager) {
-	mgr.Notify(discovery.DiscoveredPeer{
-		Nickname: peerNickname,
-		Source:   "ble→webrtc",
-	})
+	// Synthetic peer ID used only by the UI/Core send path to route messages to
+	// WebRTC connections. It is not a real libp2p peer ID and must not be dialed.
+	peerID := peer.ID("ble-" + peerUUID)
+	if peerNickname != "" {
+		mgr.Notify(discovery.DiscoveredPeer{
+			ID:       peerID,
+			Nickname: peerNickname,
+			Addr:     peerUUID,
+			Source:   "ble→webrtc",
+		})
+	}
 	s.log("[BLE▸WTC] 연결 완료: " + peerNickname)
 
 	// Register conn so Send() can reach this peer.
@@ -87,7 +95,9 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 			case proto.FrameHello:
 				if frame.From != "" && peerNickname == "" {
 					mgr.Notify(discovery.DiscoveredPeer{
+						ID:       peerID,
 						Nickname: frame.From,
+						Addr:     peerUUID,
 						Source:   "ble→webrtc",
 					})
 				}
