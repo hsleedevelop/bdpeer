@@ -20,7 +20,9 @@ type WebRTCConn struct {
 	pr          *io.PipeReader
 	pw          *io.PipeWriter
 	once        sync.Once
+	dcOnce      sync.Once
 	connectedCh chan struct{}
+	dcReadyCh   chan struct{}
 }
 
 // newWebRTCConfig builds a WebRTC configuration with STUN + TURN servers.
@@ -48,6 +50,7 @@ func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
 		pr:          pr,
 		pw:          pw,
 		connectedCh: make(chan struct{}),
+		dcReadyCh:   make(chan struct{}),
 	}
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		switch s {
@@ -84,6 +87,9 @@ func waitForICEGathering(ctx context.Context, pc *webrtc.PeerConnection) (string
 
 func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
 	c.dc = dc
+	dc.OnOpen(func() {
+		c.dcOnce.Do(func() { close(c.dcReadyCh) })
+	})
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		// Write each message into the pipe; io.ReadFull on the other end assembles frames.
 		c.pw.Write(msg.Data) //nolint:errcheck
@@ -91,6 +97,14 @@ func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
 	dc.OnClose(func() {
 		c.pw.CloseWithError(io.EOF)
 	})
+}
+
+// DataChannelOpen returns a channel that closes when the data channel is open
+// and ready for writes. This fires after ICE + DTLS + SCTP handshakes complete —
+// i.e., strictly after Connected(). Callers that write to the conn must wait on
+// this channel before attempting writes to avoid io.ErrClosedPipe.
+func (c *WebRTCConn) DataChannelOpen() <-chan struct{} {
+	return c.dcReadyCh
 }
 
 // NewWebRTCOffer creates a peer connection and returns an SDP offer string.
