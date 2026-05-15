@@ -11,6 +11,7 @@ import (
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/hsleedevelop/bdpeer/internal/proto"
 	"github.com/hsleedevelop/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/transport"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -61,10 +62,15 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 	}
 	s.log("[BLE▸WTC] 연결 완료: " + peerNickname)
 
-	// Register conn so Send() can reach this peer.
+	// Register conn so Send() can reach this peer (legacy map, removed in Task 9).
 	s.mu.Lock()
 	s.webrtcConns[peerUUID] = conn
 	s.mu.Unlock()
+
+	// Also register in the new transport Registry.
+	peerKey := transport.PeerID("ble-" + peerUUID)
+	s.webrtcT.Attach(peerKey, conn)
+	s.registry.Register(peerKey, s.webrtcT)
 
 	// Send Hello frame to the remote peer.
 	var helloBuf bytes.Buffer
@@ -78,6 +84,10 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 			s.mu.Lock()
 			delete(s.webrtcConns, peerUUID)
 			s.mu.Unlock()
+			s.registry.Unregister(peerKey)
+			// webrtcT.Close is a no-op vs the conn we already closed, but it
+			// removes the per-peer entry so future OpenStream returns ErrNoConnection.
+			_ = s.webrtcT.Close(peerKey)
 		}()
 
 		for {
