@@ -3,9 +3,7 @@
 package core
 
 import (
-	"bytes"
 	"context"
-	"io"
 
 	"github.com/hsleedevelop/bdpeer/internal/discovery"
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
@@ -46,11 +44,10 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 	}
 }
 
-// handleWebRTCConn registers a newly connected WebRTC peer with the Manager,
-// exchanges Hello frames, and handles incoming frames (text/file).
+// handleWebRTCConn registers a newly connected WebRTC peer with the Manager
+// and the transport registry. Inbound frames are delivered via the transport's
+// reader goroutine (spawned by Attach) which calls s.onInboundStream.
 func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname string, conn *bnet.WebRTCConn, mgr *discovery.Manager) {
-	// Synthetic peer ID used only by the UI/Core send path to route messages to
-	// WebRTC connections. It is not a real libp2p peer ID and must not be dialed.
 	peerID := peer.ID("ble-" + peerUUID)
 	if peerNickname != "" {
 		mgr.Notify(discovery.DiscoveredPeer{
@@ -62,72 +59,22 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 	}
 	s.log("[BLE▸WTC] 연결 완료: " + peerNickname)
 
-	// Register conn so Send() can reach this peer (legacy map, removed in Task 9).
-	s.mu.Lock()
-	s.webrtcConns[peerUUID] = conn
-	s.mu.Unlock()
-
-	// Also register in the new transport Registry.
 	peerKey := transport.PeerID("ble-" + peerUUID)
 	s.webrtcT.Attach(peerKey, conn)
 	s.registry.Register(peerKey, s.webrtcT)
 
-	// Send Hello frame to the remote peer.
-	var helloBuf bytes.Buffer
-	_ = transfer.WriteFrame(&helloBuf, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
-	conn.Write(helloBuf.Bytes()) //nolint:errcheck
+	conn.OnClose = func() {
+		s.registry.Unregister(peerKey)
+		_ = s.webrtcT.Close(peerKey)
+	}
 
-	// Read loop.
+	// Send Hello frame to the remote peer using the new transport.
 	go func() {
-		defer func() {
-			conn.Close()
-			s.mu.Lock()
-			delete(s.webrtcConns, peerUUID)
-			s.mu.Unlock()
-			s.registry.Unregister(peerKey)
-			// webrtcT.Close is a no-op vs the conn we already closed, but it
-			// removes the per-peer entry so future OpenStream returns ErrNoConnection.
-			_ = s.webrtcT.Close(peerKey)
-		}()
-
-		for {
-			frame, err := transfer.ReadFrame(conn)
-			if err != nil {
-				if err != io.EOF {
-					s.log("[BLE▸WTC] 수신 오류: " + err.Error())
-				}
-				return
-			}
-			switch frame.Type {
-			case proto.FrameText:
-				s.events <- Event{Type: EventTextReceived, From: frame.From, Content: frame.Content}
-
-			case proto.FrameHello:
-				if frame.From != "" && peerNickname == "" {
-					mgr.Notify(discovery.DiscoveredPeer{
-						ID:       peerID,
-						Nickname: frame.From,
-						Addr:     peerUUID,
-						Source:   "ble→webrtc",
-					})
-				}
-
-			case proto.FrameFileStart:
-				s.events <- Event{Type: EventFileStart, From: frame.From, Name: frame.Name, Size: frame.Size}
-				// Reconstruct the stream: re-encode startFrame then append remaining conn data.
-				var startBuf bytes.Buffer
-				_ = transfer.WriteFrame(&startBuf, frame)
-				combined := io.MultiReader(&startBuf, conn)
-				savePath, err := transfer.ReadFile(combined, s.recvDir, func(recv, total int64) {
-					s.events <- Event{Type: EventFileProgress, From: frame.From, Received: recv, Total: total}
-				})
-				if err != nil {
-					s.events <- Event{Type: EventError, Err: err}
-					return
-				}
-				s.events <- Event{Type: EventFileDone, From: frame.From, Name: frame.Name, Path: savePath}
-			}
-			_ = ctx
+		stream, err := s.webrtcT.OpenStream(ctx, peerKey)
+		if err != nil {
+			return
 		}
+		defer stream.Close()
+		_ = transfer.WriteFrame(stream, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
 	}()
 }

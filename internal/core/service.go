@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -58,27 +57,24 @@ type SendRequest struct {
 }
 
 type Service struct {
-	cfg         *config.Config
-	cfgPath     string
-	host        *bnet.Host
-	recvDir     string
-	stops       []func()
-	events      chan Event
-	mu          sync.Mutex
-	webrtcConns map[string]*bnet.WebRTCConn // peerUUID → active WebRTC conn (legacy, removed in Task 9)
-	registry    *transport.Registry
-	libp2pT     *transport.Libp2pTransport
-	webrtcT     *transport.WebRTCTransport
+	cfg      *config.Config
+	cfgPath  string
+	host     *bnet.Host
+	recvDir  string
+	stops    []func()
+	events   chan Event
+	registry *transport.Registry
+	libp2pT  *transport.Libp2pTransport
+	webrtcT  *transport.WebRTCTransport
 }
 
 func NewService(cfg *config.Config, cfgPath string) *Service {
 	return &Service{
-		cfg:         cfg,
-		cfgPath:     cfgPath,
-		events:      make(chan Event, 256),
-		webrtcConns: make(map[string]*bnet.WebRTCConn),
-		registry:    transport.NewRegistry(),
-		webrtcT:     transport.NewWebRTCTransport(),
+		cfg:      cfg,
+		cfgPath:  cfgPath,
+		events:   make(chan Event, 256),
+		registry: transport.NewRegistry(),
+		webrtcT:  transport.NewWebRTCTransport(),
 	}
 }
 
@@ -130,16 +126,23 @@ func (s *Service) Start(ctx context.Context) error {
 	s.host.OnLog = s.log
 
 	s.host.OnConnected = func(id peer.ID) {
-		s.registry.Register(transport.PeerID(id.String()), s.libp2pT)
+		peerKey := transport.PeerID(id.String())
+		s.registry.Register(peerKey, s.libp2pT)
 		connCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		_ = s.host.SendFrame(connCtx, id, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
+		stream, err := s.libp2pT.OpenStream(connCtx, peerKey)
+		if err != nil {
+			return
+		}
+		defer stream.Close()
+		_ = transfer.WriteFrame(stream, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
 	}
 	s.host.OnDisconnected = func(id peer.ID) {
 		s.registry.Unregister(transport.PeerID(id.String()))
 	}
 
 	s.libp2pT.SetHandler(s.onInboundStream)
+	s.webrtcT.SetHandler(s.onInboundStream)
 
 	mgr := discovery.NewManager(s.cfg.Nickname)
 	mgr.OnPeerFound = func(p discovery.DiscoveredPeer) {

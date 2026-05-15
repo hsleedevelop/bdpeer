@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/hsleedevelop/bdpeer/internal/discovery"
-	"github.com/hsleedevelop/bdpeer/internal/proto"
 )
 
 type PeerInfo struct {
@@ -31,16 +29,14 @@ type PeerInfo struct {
 }
 
 type Host struct {
-	Libp2p       host.Host
-	Nickname     string
-	OnFrame        func(peer.ID, proto.Frame)
-	OnFileStream   func(peer.ID, proto.Frame, io.Reader)
+	Libp2p         host.Host
+	Nickname       string
 	OnConnected    func(peer.ID)
 	OnDisconnected func(peer.ID)
 	OnLog          func(string)
-	mu           sync.RWMutex
-	nicknames    map[peer.ID]string
-	dht          *dht.IpfsDHT
+	mu             sync.RWMutex
+	nicknames      map[peer.ID]string
+	dht            *dht.IpfsDHT
 }
 
 func GenerateIdentityB64() (string, error) {

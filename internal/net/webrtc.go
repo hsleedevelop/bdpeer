@@ -23,6 +23,7 @@ type WebRTCConn struct {
 	dcOnce      sync.Once
 	connectedCh chan struct{}
 	dcReadyCh   chan struct{}
+	OnClose     func()
 }
 
 // newWebRTCConfig builds a WebRTC configuration with STUN + TURN servers.
@@ -60,6 +61,9 @@ func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
 			webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateClosed:
 			pw.CloseWithError(io.ErrClosedPipe)
+			if c.OnClose != nil {
+				go c.OnClose()
+			}
 		}
 	})
 	return c
