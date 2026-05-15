@@ -287,6 +287,8 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     if ((char)b[0] != 'D') return;
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
+    if (total == 0) return;
+    if (idx != 0 && !bufs[key]) return;
 
     if (!bufs[key]) bufs[key] = [NSMutableData new];
     [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];

@@ -89,27 +89,34 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 		return
 	}
 
-	dev, err := adapter.Connect(d.Address, bluetooth.ConnectionParams{})
-	if err != nil {
-		return
-	}
-	go func() {
-		<-ctx.Done()
-		dev.Disconnect()
+	cleanupSentinel := func() {
 		linuxDataCharsMu.Lock()
 		delete(linuxDataChars, peerAddr)
 		linuxDataCharsMu.Unlock()
 		linuxAssemblerMu.Lock()
 		linuxAssembler.Reset(peerAddr)
 		linuxAssemblerMu.Unlock()
+	}
+
+	dev, err := adapter.Connect(d.Address, bluetooth.ConnectionParams{})
+	if err != nil {
+		cleanupSentinel()
+		return
+	}
+	go func() {
+		<-ctx.Done()
+		dev.Disconnect()
+		cleanupSentinel()
 	}()
 
 	srvcs, err := dev.DiscoverServices([]bluetooth.UUID{bleServiceUUID})
 	if err != nil || len(srvcs) == 0 {
+		cleanupSentinel()
 		return
 	}
 	chars, err := srvcs[0].DiscoverCharacteristics([]bluetooth.UUID{bleNickCharUUID, bleDataCharUUID})
 	if err != nil {
+		cleanupSentinel()
 		return
 	}
 
@@ -128,6 +135,7 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 	}
 
 	if dataChar.UUID() == (bluetooth.UUID{}) {
+		cleanupSentinel()
 		return
 	}
 
