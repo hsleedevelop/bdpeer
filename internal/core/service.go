@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -264,18 +265,20 @@ func (s *Service) ConnectByNickname(ctx context.Context, nickname string) error 
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {
-	// Check if target is a BLE→WebRTC peer (fake ID prefix "ble-").
-	peerIDStr := string(req.To)
-	if len(peerIDStr) > 4 && peerIDStr[:4] == "ble-" {
-		peerUUID := peerIDStr[4:]
-		s.mu.Lock()
-		conn, ok := s.webrtcConns[peerUUID]
-		s.mu.Unlock()
-		if !ok {
-			return fmt.Errorf("WebRTC 연결 없음: %s", peerUUID)
-		}
-		return s.sendViaWebRTC(ctx, conn, req)
+	peerKey := transport.PeerID(string(req.To))
+	t, ok := s.registry.Lookup(peerKey)
+	if !ok {
+		return fmt.Errorf("unknown peer: %s", peerKey)
 	}
+
+	stream, err := t.OpenStream(ctx, peerKey)
+	if err != nil {
+		if errors.Is(err, transport.ErrNoConnection) {
+			s.registry.Unregister(peerKey)
+		}
+		return err
+	}
+	defer stream.Close()
 
 	if req.File != "" {
 		pr, pw := io.Pipe()
@@ -283,37 +286,13 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw)
 			pw.CloseWithError(err)
 		}()
-		stream, err := s.host.Libp2p.NewStream(ctx, req.To, proto.Protocol)
-		if err != nil {
-			return err
-		}
-		defer stream.Close()
 		_, err = io.Copy(stream, pr)
 		return err
 	}
 
-	frame := proto.Frame{Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content}
-	return s.host.SendFrame(ctx, req.To, frame)
-}
-
-func (s *Service) sendViaWebRTC(_ context.Context, conn *bnet.WebRTCConn, req SendRequest) error {
-	if req.File != "" {
-		pr, pw := io.Pipe()
-		go func() {
-			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw)
-			pw.CloseWithError(err)
-		}()
-		_, err := io.Copy(conn, pr)
-		return err
-	}
-	var buf bytes.Buffer
-	if err := transfer.WriteFrame(&buf, proto.Frame{
+	return transfer.WriteFrame(stream, proto.Frame{
 		Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content,
-	}); err != nil {
-		return err
-	}
-	_, err := conn.Write(buf.Bytes())
-	return err
+	})
 }
 
 func listenPort(h *bnet.Host) int {
