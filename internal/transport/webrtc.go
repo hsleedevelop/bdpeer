@@ -17,10 +17,11 @@ import (
 // PeerID values used with this transport are typically "ble-<uuid>" but the
 // transport treats them as opaque keys.
 type WebRTCTransport struct {
-	mu       sync.RWMutex
-	conns    map[PeerID]*webrtcEntry
-	handOnce sync.Once
-	handler  Handler // written exactly once inside handOnce.Do
+	mu           sync.RWMutex
+	conns        map[PeerID]*webrtcEntry
+	handOnce     sync.Once
+	handler      Handler // written exactly once inside handOnce.Do
+	handlerReady chan struct{}
 }
 
 type webrtcEntry struct {
@@ -30,17 +31,20 @@ type webrtcEntry struct {
 
 // NewWebRTCTransport returns an empty transport.
 func NewWebRTCTransport() *WebRTCTransport {
-	return &WebRTCTransport{conns: make(map[PeerID]*webrtcEntry)}
+	return &WebRTCTransport{
+		conns:        make(map[PeerID]*webrtcEntry),
+		handlerReady: make(chan struct{}),
+	}
 }
 
 // Name implements Transport.
 func (t *WebRTCTransport) Name() string { return "webrtc" }
 
 // Attach registers an already-connected WebRTCConn under peer and spawns a
-// goroutine that delivers inbound frames to the registered handler. Replaces
-// any existing entry for peer (closing the old conn's reader path via
-// SetHandler is the caller's responsibility — typical use is one Attach per
-// peer for the lifetime of that connection).
+// goroutine that delivers inbound frames to the registered handler. The reader
+// goroutine blocks until SetHandler is called, so Attach and SetHandler may be
+// called in any order. Replaces any existing entry for peer — typical use is
+// one Attach per peer for the lifetime of that connection.
 func (t *WebRTCTransport) Attach(peer PeerID, conn *bnet.WebRTCConn) {
 	e := &webrtcEntry{conn: conn}
 	t.mu.Lock()
@@ -65,12 +69,14 @@ func (t *WebRTCTransport) OpenStream(_ context.Context, p PeerID) (io.ReadWriteC
 }
 
 // SetHandler implements Transport. Registers the inbound stream callback.
-// Must be called exactly once for the lifetime of the transport — subsequent
-// calls are no-ops (sync.Once contract). Reader goroutines spawned by Attach
-// read t.handler after handOnce.Do has completed, so a plain field read is
-// safe (sync.Once provides the happens-before guarantee).
+// May be called before or after Attach — reader goroutines block on
+// handlerReady and proceed once this method returns. Subsequent calls are
+// no-ops (sync.Once contract).
 func (t *WebRTCTransport) SetHandler(h Handler) {
-	t.handOnce.Do(func() { t.handler = h })
+	t.handOnce.Do(func() {
+		t.handler = h
+		close(t.handlerReady)
+	})
 }
 
 // Close implements Transport. Removes the per-peer entry and closes its
@@ -89,31 +95,26 @@ func (t *WebRTCTransport) Close(p PeerID) error {
 }
 
 // runReader hands the persistent WebRTCConn to the registered handler.
-// The handler is responsible for reading frames in a loop until EOF.
-// t.handler is read after handOnce.Do has completed (happens-before), so
-// no additional synchronization is needed for the read.
+// It blocks on handlerReady until SetHandler is called, then invokes the
+// handler. If the transport is closed before SetHandler is called the conn
+// will yield EOF and the goroutine exits cleanly after unblocking.
+// The handler must not Close() the underlying *bnet.WebRTCConn — we pass a
+// noCloseRWC wrapper to make that explicit.
 func (t *WebRTCTransport) runReader(peer PeerID, e *webrtcEntry) {
-	h := t.handler
-	if h == nil {
-		return
-	}
+	<-t.handlerReady
 	defer func() {
 		if r := recover(); r != nil {
-			_ = r // swallow — don't take down the transport
+			_ = r // handler panic must not kill transport
 		}
 	}()
-	// The handler owns the conn for the duration of this inbound "stream".
-	// It must not Close() the underlying *bnet.WebRTCConn — the transport
-	// owns the connection's lifetime. We pass a noCloseRWC wrapper to make
-	// that explicit.
-	h(peer, &noCloseRWC{rwc: e.conn})
+	t.handler(peer, &noCloseRWC{rwc: e.conn})
 }
 
 // webrtcStream is the per-call outbound wrapper. Writes go to the underlying
 // DataChannel; Close releases the per-peer write mutex.
 type webrtcStream struct {
-	entry  *webrtcEntry
-	closed bool
+	entry     *webrtcEntry
+	closeOnce sync.Once
 }
 
 func (s *webrtcStream) Read(_ []byte) (int, error) {
@@ -127,10 +128,9 @@ func (s *webrtcStream) Write(p []byte) (int, error) {
 }
 
 func (s *webrtcStream) Close() error {
-	if !s.closed {
+	s.closeOnce.Do(func() {
 		s.entry.writeMu.Unlock()
-		s.closed = true
-	}
+	})
 	return nil
 }
 
