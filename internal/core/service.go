@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -66,6 +67,7 @@ type Service struct {
 	registry *transport.Registry
 	libp2pT  *transport.Libp2pTransport
 	webrtcT  *transport.WebRTCTransport
+	mgr      *discovery.Manager
 }
 
 func NewService(cfg *config.Config, cfgPath string) *Service {
@@ -144,7 +146,8 @@ func (s *Service) Start(ctx context.Context) error {
 	s.libp2pT.SetHandler(s.onInboundStream)
 	s.webrtcT.SetHandler(s.onInboundStream)
 
-	mgr := discovery.NewManager(s.cfg.Nickname)
+	s.mgr = discovery.NewManager(s.cfg.Nickname)
+	mgr := s.mgr
 	mgr.OnPeerFound = func(p discovery.DiscoveredPeer) {
 		if p.ID != "" && p.Nickname != "" {
 			s.host.RememberNickname(p.ID, p.Nickname)
@@ -234,16 +237,24 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 			if frame.From == "" {
 				continue
 			}
-			// For libp2p peers we have a real peer.ID; for BLE→WebRTC the from
-			// PeerID is "ble-<uuid>". RememberNickname is libp2p-specific so
-			// only call it for libp2p-shaped IDs.
 			if pid, err := peer.Decode(string(from)); err == nil {
+				// libp2p peer.
 				s.host.RememberNickname(pid, frame.From)
 				addrs := s.host.Libp2p.Peerstore().Addrs(pid)
 				s.log("닉네임 수신: " + frame.From + " (" + pid.String()[:8] + "...)")
 				s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
 					ID: pid, Nickname: frame.From, Addrs: addrs, Source: "dht",
 				}}
+			} else if strings.HasPrefix(string(from), "ble-") && s.mgr != nil {
+				// BLE peer whose nickname was unknown at connect time —
+				// propagate via the discovery Manager so OnPeerFound emits EventPeerFound.
+				peerUUID := strings.TrimPrefix(string(from), "ble-")
+				s.mgr.Notify(discovery.DiscoveredPeer{
+					ID:       peer.ID(string(from)),
+					Nickname: frame.From,
+					Addr:     peerUUID,
+					Source:   "ble→webrtc",
+				})
 			}
 
 		case proto.FrameFileStart:

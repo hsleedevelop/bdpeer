@@ -60,13 +60,12 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 	s.log("[BLE▸WTC] 연결 완료: " + peerNickname)
 
 	peerKey := transport.PeerID("ble-" + peerUUID)
-	s.webrtcT.Attach(peerKey, conn)
-	s.registry.Register(peerKey, s.webrtcT)
-
 	conn.OnClose = func() {
 		s.registry.Unregister(peerKey)
 		_ = s.webrtcT.Close(peerKey)
 	}
+	s.webrtcT.Attach(peerKey, conn)
+	s.registry.Register(peerKey, s.webrtcT)
 
 	// Send Hello frame to the remote peer using the new transport.
 	go func() {

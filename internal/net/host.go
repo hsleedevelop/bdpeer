@@ -186,7 +186,7 @@ type libp2pNotifee struct {
 func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
 	// Do NOT notify mgr here — bootstrap/relay peers would flood the peer list.
-	// Peer is added to the list only after Hello frame exchange (service.go OnFrame).
+	// Peer is added to the list only after Hello frame exchange (service.go onInboundStream).
 	if n.host.OnConnected != nil {
 		go n.host.OnConnected(id)
 	}
