@@ -128,9 +128,13 @@ func (s *Service) Start(ctx context.Context) error {
 	s.host.OnLog = s.log
 
 	s.host.OnConnected = func(id peer.ID) {
+		s.registry.Register(transport.PeerID(id.String()), s.libp2pT)
 		connCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		_ = s.host.SendFrame(connCtx, id, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
+	}
+	s.host.OnDisconnected = func(id peer.ID) {
+		s.registry.Unregister(transport.PeerID(id.String()))
 	}
 
 	s.host.OnFrame = func(id peer.ID, frame proto.Frame) {

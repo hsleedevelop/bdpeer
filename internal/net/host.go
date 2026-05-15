@@ -33,10 +33,11 @@ type PeerInfo struct {
 type Host struct {
 	Libp2p       host.Host
 	Nickname     string
-	OnFrame      func(peer.ID, proto.Frame)
-	OnFileStream func(peer.ID, proto.Frame, io.Reader)
-	OnConnected  func(peer.ID)
-	OnLog        func(string)
+	OnFrame        func(peer.ID, proto.Frame)
+	OnFileStream   func(peer.ID, proto.Frame, io.Reader)
+	OnConnected    func(peer.ID)
+	OnDisconnected func(peer.ID)
+	OnLog          func(string)
 	mu           sync.RWMutex
 	nicknames    map[peer.ID]string
 	dht          *dht.IpfsDHT
@@ -201,6 +202,9 @@ func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
 		n.host.emitLog("연결 끊김: " + nick)
 	}
 	n.mgr.Forget(id.String())
+	if n.host.OnDisconnected != nil {
+		go n.host.OnDisconnected(id)
+	}
 }
 func (n *libp2pNotifee) Listen(_ network.Network, _ multiaddr.Multiaddr)      {}
 func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
