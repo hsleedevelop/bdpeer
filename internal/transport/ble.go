@@ -42,6 +42,7 @@ func (t *BLETransport) Attach(peer PeerID, sendFn func([]byte)) {
 	t.mu.Lock()
 	if old, ok := t.entries[peer]; ok {
 		old.pw.Close()
+		old.pr.Close()
 	}
 	t.entries[peer] = e
 	t.mu.Unlock()
@@ -70,6 +71,8 @@ func (t *BLETransport) OpenStream(_ context.Context, peer PeerID) (io.ReadWriteC
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNoConnection, peer)
 	}
+	// writeMu is held for the stream's lifetime — serialises concurrent sends per peer.
+	// Callers must Close() the stream to release it.
 	e.writeMu.Lock()
 	return &bleStream{entry: e}, nil
 }
@@ -99,7 +102,11 @@ func (t *BLETransport) Close(peer PeerID) error {
 
 func (t *BLETransport) runReader(peer PeerID, e *bleEntry) {
 	<-t.handlerReady
-	defer func() { recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			_ = r // handler panic must not kill transport
+		}
+	}()
 	t.handler(peer, &bleReaderRWC{entry: e})
 }
 
@@ -109,7 +116,10 @@ type bleStream struct {
 	closeOnce sync.Once
 }
 
-func (s *bleStream) Read(_ []byte) (int, error)  { return 0, io.EOF }
+func (s *bleStream) Read(_ []byte) (int, error) {
+	// Outbound streams are write-only; reads are served by bleReaderRWC via runReader.
+	return 0, io.EOF
+}
 func (s *bleStream) Write(p []byte) (int, error) {
 	buf := make([]byte, len(p))
 	copy(buf, p)
@@ -127,5 +137,5 @@ type bleReaderRWC struct {
 }
 
 func (r *bleReaderRWC) Read(p []byte) (int, error)  { return r.entry.pr.Read(p) }
-func (r *bleReaderRWC) Write(p []byte) (int, error) { return len(p), nil }
-func (r *bleReaderRWC) Close() error                { return nil }
+func (r *bleReaderRWC) Write(p []byte) (int, error) { return 0, io.ErrClosedPipe }
+func (r *bleReaderRWC) Close() error                { return r.entry.pr.Close() }

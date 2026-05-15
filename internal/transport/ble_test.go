@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -75,8 +76,8 @@ func TestBLETransportNoConnection(t *testing.T) {
 	bt := NewBLETransport()
 	bt.SetHandler(func(_ PeerID, _ io.ReadWriteCloser) {})
 	_, err := bt.OpenStream(context.Background(), PeerID("ghost"))
-	if err == nil {
-		t.Fatal("expected ErrNoConnection")
+	if !errors.Is(err, ErrNoConnection) {
+		t.Fatalf("expected ErrNoConnection, got %v", err)
 	}
 }
 
