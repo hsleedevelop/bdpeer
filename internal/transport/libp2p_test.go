@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -102,5 +103,8 @@ func TestLibp2pTransport_OpenStreamUnknownPeer(t *testing.T) {
 	_, err = tr.OpenStream(ctx, PeerID("12D3KooWQYhTNQdmPWHRTwAFK6cZgSt4U4VkjqcXvgxBkRX5FfWy"))
 	if err == nil {
 		t.Fatalf("expected error for unknown peer")
+	}
+	if !errors.Is(err, ErrNoConnection) {
+		t.Fatalf("expected ErrNoConnection, got: %v", err)
 	}
 }

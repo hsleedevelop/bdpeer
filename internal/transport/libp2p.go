@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/hsleedevelop/bdpeer/internal/proto"
@@ -17,8 +18,8 @@ import (
 // PeerID values used with this transport must be valid libp2p peer.ID
 // strings (i.e. peer.ID.String() output).
 type Libp2pTransport struct {
-	host    *bnet.Host
-	handler Handler
+	host     *bnet.Host
+	handOnce sync.Once
 }
 
 // NewLibp2pTransport returns a transport that uses host's libp2p endpoint.
@@ -44,19 +45,21 @@ func (t *Libp2pTransport) OpenStream(ctx context.Context, p PeerID) (io.ReadWrit
 }
 
 // SetHandler implements Transport. Registers the protocol stream handler.
-// Replaces any previously registered handler.
+// Must be called exactly once for the lifetime of the transport — subsequent
+// calls are no-ops. This matches the libp2p model where the stream handler
+// is set once at startup; concurrent runtime replacement is intentionally
+// not supported.
 func (t *Libp2pTransport) SetHandler(h Handler) {
-	t.handler = h
-	t.host.Libp2p.SetStreamHandler(proto.Protocol, func(s network.Stream) {
-		from := PeerID(s.Conn().RemotePeer().String())
-		// Run the handler in this goroutine — libp2p already spawned one for us.
-		defer func() {
-			if r := recover(); r != nil {
-				// Don't let a handler panic kill the transport.
-				_ = r
-			}
-		}()
-		t.handler(from, s)
+	t.handOnce.Do(func() {
+		t.host.Libp2p.SetStreamHandler(proto.Protocol, func(s network.Stream) {
+			from := PeerID(s.Conn().RemotePeer().String())
+			defer func() {
+				if r := recover(); r != nil {
+					_ = r // panic in handler must not kill transport goroutine
+				}
+			}()
+			h(from, s)
+		})
 	})
 }
 

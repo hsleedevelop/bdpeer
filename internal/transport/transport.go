@@ -29,8 +29,9 @@ type Transport interface {
 	// connection is registered for peer at call time.
 	OpenStream(ctx context.Context, peer PeerID) (io.ReadWriteCloser, error)
 
-	// SetHandler registers the inbound stream callback. Implementations must
-	// support calling this once at startup; later calls replace the handler.
+	// SetHandler registers the inbound stream callback. Must be called exactly
+	// once per transport for its lifetime. Implementations may treat subsequent
+	// calls as no-ops; behavior is not defined.
 	SetHandler(h Handler)
 
 	// Close tears down per-peer state. Does not stop the transport itself.
