@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -138,40 +139,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.registry.Unregister(transport.PeerID(id.String()))
 	}
 
-	s.host.OnFrame = func(id peer.ID, frame proto.Frame) {
-		switch frame.Type {
-		case proto.FrameText:
-			s.events <- Event{Type: EventTextReceived, From: frame.From, Content: frame.Content}
-		case proto.FrameHello:
-			if frame.From == "" {
-				return
-			}
-			s.host.RememberNickname(id, frame.From)
-			addrs := s.host.Libp2p.Peerstore().Addrs(id)
-			s.log("닉네임 수신: " + frame.From + " (" + id.String()[:8] + "...)")
-			s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
-				ID: id, Nickname: frame.From, Addrs: addrs, Source: "dht",
-			}}
-		}
-	}
-	s.host.OnFileStream = func(_ peer.ID, startFrame proto.Frame, r io.Reader) {
-		s.events <- Event{Type: EventFileStart, From: startFrame.From, Name: startFrame.Name, Size: startFrame.Size}
-
-		var startBuf bytes.Buffer
-		_ = transfer.WriteFrame(&startBuf, startFrame)
-		combined := io.MultiReader(&startBuf, r)
-
-		savePath, err := transfer.ReadFile(combined, s.recvDir, func(recv, total int64) {
-			s.events <- Event{Type: EventFileProgress, From: startFrame.From, Received: recv, Total: total}
-		})
-		if err != nil {
-			s.events <- Event{Type: EventError, Err: err}
-			return
-		}
-		s.events <- Event{Type: EventFileDone, From: startFrame.From, Name: startFrame.Name, Path: savePath}
-	}
-
-	s.host.StartStreamHandler()
+	s.libp2pT.SetHandler(s.onInboundStream)
 
 	mgr := discovery.NewManager(s.cfg.Nickname)
 	mgr.OnPeerFound = func(p discovery.DiscoveredPeer) {
@@ -241,6 +209,56 @@ func (s *Service) Stop() error {
 		return s.host.Close()
 	}
 	return nil
+}
+
+// onInboundStream is the unified inbound handler for all transports.
+// It reads frames from stream until EOF and dispatches each frame to the
+// Service event channel. Currently the from PeerID is informational; frame
+// dispatching keys off frame.From (sender's nickname) and frame.Type.
+func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteCloser) {
+	defer stream.Close()
+	r := bufio.NewReader(stream)
+	for {
+		frame, err := transfer.ReadFrame(r)
+		if err != nil {
+			return
+		}
+		switch frame.Type {
+		case proto.FrameText:
+			s.events <- Event{Type: EventTextReceived, From: frame.From, Content: frame.Content}
+
+		case proto.FrameHello:
+			if frame.From == "" {
+				continue
+			}
+			// For libp2p peers we have a real peer.ID; for BLE→WebRTC the from
+			// PeerID is "ble-<uuid>". RememberNickname is libp2p-specific so
+			// only call it for libp2p-shaped IDs.
+			if pid, err := peer.Decode(string(from)); err == nil {
+				s.host.RememberNickname(pid, frame.From)
+				addrs := s.host.Libp2p.Peerstore().Addrs(pid)
+				s.log("닉네임 수신: " + frame.From + " (" + pid.String()[:8] + "...)")
+				s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
+					ID: pid, Nickname: frame.From, Addrs: addrs, Source: "dht",
+				}}
+			}
+
+		case proto.FrameFileStart:
+			s.events <- Event{Type: EventFileStart, From: frame.From, Name: frame.Name, Size: frame.Size}
+			var startBuf bytes.Buffer
+			_ = transfer.WriteFrame(&startBuf, frame)
+			combined := io.MultiReader(&startBuf, r)
+			savePath, err := transfer.ReadFile(combined, s.recvDir, func(recv, total int64) {
+				s.events <- Event{Type: EventFileProgress, From: frame.From, Received: recv, Total: total}
+			})
+			if err != nil {
+				s.events <- Event{Type: EventError, Err: err}
+				return
+			}
+			s.events <- Event{Type: EventFileDone, From: frame.From, Name: frame.Name, Path: savePath}
+			return // file stream consumed the rest of this logical stream
+		}
+	}
 }
 
 func (s *Service) Connect(ctx context.Context, addr string) error {
