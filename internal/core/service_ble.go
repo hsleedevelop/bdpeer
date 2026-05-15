@@ -16,7 +16,17 @@ import (
 // startBLEWithWebRTC wires CoreBluetooth BLE discovery to the BLEWebRTCUpgrader,
 // then starts BLE peripheral+central. When a WebRTC data channel is ready the
 // peer is registered with the Manager and the bdpeer Hello frame is exchanged.
+// BLETransport is registered immediately on peer found as a fallback; it is
+// superseded by WebRTCTransport if the upgrade succeeds.
 func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager) {
+	// Wire BLE data transport handler — same inbound processor as other transports.
+	s.bleT.SetHandler(s.onInboundStream)
+
+	// Route incoming BLE data to the transport.
+	discovery.SetBLEDataCallback(func(peerUUID string, data []byte) {
+		s.bleT.InboundData(transport.PeerID("ble-"+peerUUID), data)
+	})
+
 	upgrader := bnet.NewBLEWebRTCUpgrader(s.cfg.Nickname)
 	upgrader.OnLog = s.log
 	upgrader.TURNServers = s.cfg.ICEServers()
@@ -29,12 +39,27 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 
 	discovery.SetBLECallbacks(
 		func(nickname, peerUUID string) {
+			peerKey := transport.PeerID("ble-" + peerUUID)
+			// Register BLE data transport immediately as fallback.
+			s.bleT.Attach(peerKey, func(data []byte) {
+				discovery.BLECentralSendData(peerUUID, data)
+			})
+			s.registry.Register(peerKey, s.bleT)
+			// Send Hello over BLE so responder gets our nickname.
+			go s.sendBLEHello(ctx, peerKey)
+			// Start WebRTC upgrade — will overwrite BLE in registry if it succeeds.
 			upgrader.OnBLEPeerFound(ctx, nickname, peerUUID)
 		},
 		func(peerUUID, sdp string, isOffer bool) {
 			upgrader.OnSDPReceived(ctx, peerUUID, sdp, isOffer)
 		},
 		func(centralUUID string) {
+			peerKey := transport.PeerID("ble-" + centralUUID)
+			s.bleT.Attach(peerKey, func(data []byte) {
+				discovery.BLEPeripheralSendDataTo(centralUUID, data)
+			})
+			s.registry.Register(peerKey, s.bleT)
+			go s.sendBLEHello(ctx, peerKey)
 			s.log("[BLE] central 구독: " + centralUUID)
 		},
 	)
@@ -66,6 +91,7 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 	}
 	s.webrtcT.Attach(peerKey, conn)
 	s.registry.Register(peerKey, s.webrtcT)
+	_ = s.bleT.Close(peerKey) // BLE superseded by WebRTC for this peer
 
 	// Send Hello frame to the remote peer using the new transport.
 	go func() {
@@ -76,4 +102,14 @@ func (s *Service) handleWebRTCConn(ctx context.Context, peerUUID, peerNickname s
 		defer stream.Close()
 		_ = transfer.WriteFrame(stream, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
 	}()
+}
+
+// sendBLEHello sends a Hello frame to a peer over the BLE data transport.
+func (s *Service) sendBLEHello(ctx context.Context, peerKey transport.PeerID) {
+	stream, err := s.bleT.OpenStream(ctx, peerKey)
+	if err != nil {
+		return
+	}
+	defer stream.Close()
+	_ = transfer.WriteFrame(stream, proto.Frame{Type: proto.FrameHello, From: s.cfg.Nickname})
 }

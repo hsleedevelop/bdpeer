@@ -67,6 +67,7 @@ type Service struct {
 	registry *transport.Registry
 	libp2pT  *transport.Libp2pTransport
 	webrtcT  *transport.WebRTCTransport
+	bleT     *transport.BLETransport
 	mgr      *discovery.Manager
 }
 
@@ -77,6 +78,7 @@ func NewService(cfg *config.Config, cfgPath string) *Service {
 		events:   make(chan Event, 256),
 		registry: transport.NewRegistry(),
 		webrtcT:  transport.NewWebRTCTransport(),
+		bleT:     transport.NewBLETransport(),
 	}
 }
 
