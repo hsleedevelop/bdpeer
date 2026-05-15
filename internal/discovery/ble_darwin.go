@@ -21,6 +21,7 @@ var bleCallbacks struct {
 	onPeerFound         func(nickname, peerUUID string)
 	onSDPReceived       func(peerUUID, sdp string, isOffer bool)
 	onCentralSubscribed func(centralUUID string)
+	onDataReceived      func(peerUUID string, data []byte)
 }
 
 // SetBLECallbacks registers Go handlers called from CoreBluetooth.
@@ -35,6 +36,34 @@ func SetBLECallbacks(
 	bleCallbacks.onPeerFound = onPeer
 	bleCallbacks.onSDPReceived = onSDP
 	bleCallbacks.onCentralSubscribed = onCentral
+}
+
+// SetBLEDataCallback registers the handler for inbound BLE data frames.
+// Call before StartBLE.
+func SetBLEDataCallback(onData func(peerUUID string, data []byte)) {
+	bleCallbacks.Lock()
+	defer bleCallbacks.Unlock()
+	bleCallbacks.onDataReceived = onData
+}
+
+// BLEPeripheralSendDataTo sends data to a specific central (peripheral→central notify).
+func BLEPeripheralSendDataTo(centralUUID string, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	cu := C.CString(centralUUID)
+	defer C.free(unsafe.Pointer(cu))
+	C.ble_peripheral_send_data_to(cu, (*C.uint8_t)(unsafe.Pointer(&data[0])), C.int(len(data)))
+}
+
+// BLECentralSendData sends data to a specific peripheral (central→peripheral write).
+func BLECentralSendData(peripheralUUID string, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	pu := C.CString(peripheralUUID)
+	defer C.free(unsafe.Pointer(pu))
+	C.ble_central_send_data(pu, (*C.uint8_t)(unsafe.Pointer(&data[0])), C.int(len(data)))
 }
 
 // BLEPeripheralSendSDP sends an SDP answer to all connected centrals.
@@ -114,4 +143,16 @@ func go_ble_central_subscribed(centralUUID *C.char) {
 	if cb != nil {
 		cb(C.GoString(centralUUID))
 	}
+}
+
+//export go_ble_data_received
+func go_ble_data_received(peerUUID *C.char, data *C.uint8_t, length C.int) {
+	bleCallbacks.Lock()
+	cb := bleCallbacks.onDataReceived
+	bleCallbacks.Unlock()
+	if cb == nil || length == 0 {
+		return
+	}
+	buf := C.GoBytes(unsafe.Pointer(data), length)
+	cb(C.GoString(peerUUID), buf)
 }
