@@ -1,6 +1,6 @@
 # Transport Abstraction (Phase 1) — Design
 
-**Status:** Draft
+**Status:** Implemented (commit a35932b)
 **Date:** 2026-05-15
 **Scope:** Phase 1 of the "discovery path = data path" initiative. Introduce a Transport abstraction so future phases (BLE data channel, WebRTC↔BLE fallback) plug in cleanly. No external behavior changes.
 
