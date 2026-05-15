@@ -9,15 +9,18 @@
 extern void go_ble_peer_found(const char *nickname, const char *peer_uuid);
 extern void go_ble_sdp_received(const char *peer_uuid, const char *sdp, int is_offer);
 extern void go_ble_central_subscribed(const char *central_uuid);
+extern void go_ble_data_received(const char *peer_uuid, const uint8_t *data, int len);
 
 // ── UUIDs ─────────────────────────────────────────────────────────────────────
 static NSString *const kServiceUUIDStr  = @"BD9E0001-F0F0-1000-8000-00805F9B34FB";
 static NSString *const kNickCharUUIDStr = @"BD9E0002-F0F0-1000-8000-00805F9B34FB";
 static NSString *const kSDPCharUUIDStr  = @"BD9E0003-F0F0-1000-8000-00805F9B34FB";
+static NSString *const kDataCharUUIDStr = @"BD9E0004-F0F0-1000-8000-00805F9B34FB";
 
 static CBUUID *svcUUID(void)  { return [CBUUID UUIDWithString:kServiceUUIDStr];  }
 static CBUUID *nickUUID(void) { return [CBUUID UUIDWithString:kNickCharUUIDStr]; }
 static CBUUID *sdpUUID(void)  { return [CBUUID UUIDWithString:kSDPCharUUIDStr];  }
+static CBUUID *dataUUID(void) { return [CBUUID UUIDWithString:kDataCharUUIDStr]; }
 
 // ── Chunk protocol ────────────────────────────────────────────────────────────
 // Header: [type(1)] [idx_hi(1)] [idx_lo(1)] [total_hi(1)] [total_lo(1)]
@@ -46,13 +49,16 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 // Peripheral side
 @property (nonatomic, strong) CBPeripheralManager      *peripheralMgr;
 @property (nonatomic, strong) CBMutableCharacteristic  *sdpChar;
+@property (nonatomic, strong) CBMutableCharacteristic  *dataChar;
 @property (nonatomic, strong) NSMutableSet<CBCentral *> *subscribedCentrals;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralSDPBufs;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralDataBufs;
 
 // Central side
 @property (nonatomic, strong) CBCentralManager *centralMgr;
 @property (nonatomic, strong) NSMutableDictionary<NSUUID *, CBPeripheral *> *peripherals;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
 
 @end
 
@@ -60,11 +66,13 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 
 - (instancetype)initWithNickname:(NSString *)nickname {
     if (!(self = [super init])) return nil;
-    _myNickname        = nickname;
-    _subscribedCentrals  = [NSMutableSet new];
-    _centralSDPBufs    = [NSMutableDictionary new];
-    _peripherals       = [NSMutableDictionary new];
-    _peripheralSDPBufs = [NSMutableDictionary new];
+    _myNickname         = nickname;
+    _subscribedCentrals = [NSMutableSet new];
+    _centralSDPBufs     = [NSMutableDictionary new];
+    _centralDataBufs    = [NSMutableDictionary new];
+    _peripherals        = [NSMutableDictionary new];
+    _peripheralSDPBufs  = [NSMutableDictionary new];
+    _peripheralDataBufs = [NSMutableDictionary new];
     return self;
 }
 
@@ -96,8 +104,14 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
                value:nil
          permissions:CBAttributePermissionsWriteable];
 
+    _dataChar = [[CBMutableCharacteristic alloc]
+        initWithType:dataUUID()
+          properties:CBCharacteristicPropertyWriteWithoutResponse | CBCharacteristicPropertyNotify
+               value:nil
+         permissions:CBAttributePermissionsWriteable];
+
     CBMutableService *svc = [[CBMutableService alloc] initWithType:svcUUID() primary:YES];
-    svc.characteristics = @[nickChar, _sdpChar];
+    svc.characteristics = @[nickChar, _sdpChar, _dataChar];
     [pm addService:svc];
 }
 
@@ -126,10 +140,15 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 - (void)peripheralManager:(CBPeripheralManager *)pm
     didReceiveWriteRequests:(NSArray<CBATTRequest *> *)requests {
     for (CBATTRequest *req in requests) {
-        if (![req.characteristic.UUID isEqual:sdpUUID()]) continue;
-        [self handleChunk:req.value
-                 inBufMap:_centralSDPBufs
-                      key:req.central.identifier.UUIDString];
+        if ([req.characteristic.UUID isEqual:sdpUUID()]) {
+            [self handleChunk:req.value
+                     inBufMap:_centralSDPBufs
+                          key:req.central.identifier.UUIDString];
+        } else if ([req.characteristic.UUID isEqual:dataUUID()]) {
+            [self handleDataChunk:req.value
+                         inBufMap:_centralDataBufs
+                              key:req.central.identifier.UUIDString];
+        }
     }
 }
 
@@ -176,7 +195,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 - (void)peripheral:(CBPeripheral *)p didDiscoverServices:(NSError *)e {
     if (e) return;
     for (CBService *s in p.services)
-        [p discoverCharacteristics:@[nickUUID(), sdpUUID()] forService:s];
+        [p discoverCharacteristics:@[nickUUID(), sdpUUID(), dataUUID()] forService:s];
 }
 
 - (void)peripheral:(CBPeripheral *)p
@@ -184,8 +203,9 @@ didDiscoverCharacteristicsForService:(CBService *)s
              error:(NSError *)e {
     if (e) return;
     for (CBCharacteristic *c in s.characteristics) {
-        if ([c.UUID isEqual:nickUUID()]) [p readValueForCharacteristic:c];
-        if ([c.UUID isEqual:sdpUUID()])  [p setNotifyValue:YES forCharacteristic:c];
+        if ([c.UUID isEqual:nickUUID()])  [p readValueForCharacteristic:c];
+        if ([c.UUID isEqual:sdpUUID()])   [p setNotifyValue:YES forCharacteristic:c];
+        if ([c.UUID isEqual:dataUUID()])  [p setNotifyValue:YES forCharacteristic:c];
     }
 }
 
@@ -204,6 +224,12 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
         [self handleChunk:c.value
                  inBufMap:_peripheralSDPBufs
                       key:p.identifier.UUIDString];
+    }
+
+    if ([c.UUID isEqual:dataUUID()]) {
+        [self handleDataChunk:c.value
+                     inBufMap:_peripheralDataBufs
+                          key:p.identifier.UUIDString];
     }
 }
 
@@ -247,6 +273,65 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     }
 }
 
+- (void)handleDataChunk:(NSData *)chunk
+               inBufMap:(NSMutableDictionary<NSString *, NSMutableData *> *)bufs
+                    key:(NSString *)key {
+    if (chunk.length < CHUNK_HDR) return;
+    const uint8_t *b = chunk.bytes;
+    uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
+    uint16_t total = ((uint16_t)b[3] << 8) | b[4];
+
+    if (!bufs[key]) bufs[key] = [NSMutableData new];
+    [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];
+
+    if (idx == total - 1) {
+        NSData *assembled = bufs[key];
+        bufs[key] = nil;
+        go_ble_data_received([key UTF8String], (const uint8_t *)assembled.bytes, (int)assembled.length);
+    }
+}
+
+// ── Data send helpers ─────────────────────────────────────────────────────────
+
+- (void)sendDataToCentral:(NSString *)centralUUID data:(NSData *)data {
+    CBCentral *target = nil;
+    for (CBCentral *c in _subscribedCentrals) {
+        if ([c.identifier.UUIDString isEqualToString:centralUUID]) {
+            target = c;
+            break;
+        }
+    }
+    if (!target) return;
+
+    uint16_t total = (uint16_t)((data.length + CHUNK_BODY - 1) / CHUNK_BODY);
+    for (uint16_t i = 0; i < total; i++) {
+        NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
+        NSUInteger len    = MIN(CHUNK_BODY, data.length - offset);
+        NSData *chunk = makeChunk('D', i, total, data, offset, len);
+        [_peripheralMgr updateValue:chunk
+                  forCharacteristic:_dataChar
+               onSubscribedCentrals:@[target]];
+        [NSThread sleepForTimeInterval:0.01];
+    }
+}
+
+- (void)sendDataToPeripheral:(CBPeripheral *)p data:(NSData *)data {
+    CBCharacteristic *dataC = nil;
+    for (CBService *s in p.services)
+        for (CBCharacteristic *c in s.characteristics)
+            if ([c.UUID isEqual:dataUUID()]) { dataC = c; break; }
+    if (!dataC) return;
+
+    uint16_t total = (uint16_t)((data.length + CHUNK_BODY - 1) / CHUNK_BODY);
+    for (uint16_t i = 0; i < total; i++) {
+        NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
+        NSUInteger len    = MIN(CHUNK_BODY, data.length - offset);
+        NSData *chunk = makeChunk('D', i, total, data, offset, len);
+        [p writeValue:chunk forCharacteristic:dataC type:CBCharacteristicWriteWithoutResponse];
+        [NSThread sleepForTimeInterval:0.01];
+    }
+}
+
 @end
 
 // ── C API ─────────────────────────────────────────────────────────────────────
@@ -284,5 +369,22 @@ void ble_central_send_sdp(const char *peer_uuid, const char *sdp, char sdp_type)
     dispatch_async(gBLE.bleQueue, ^{
         CBPeripheral *p = gBLE.peripherals[uid];
         if (p) [gBLE sendSDPToPeripheral:p sdp:sdpStr type:type];
+    });
+}
+
+void ble_peripheral_send_data_to(const char *central_uuid, const uint8_t *data, int len) {
+    NSString *uuid = @(central_uuid);
+    NSData *d = [NSData dataWithBytes:data length:(NSUInteger)len];
+    dispatch_async(gBLE.bleQueue, ^{
+        [gBLE sendDataToCentral:uuid data:d];
+    });
+}
+
+void ble_central_send_data(const char *peripheral_uuid, const uint8_t *data, int len) {
+    NSUUID *uid = [[NSUUID alloc] initWithUUIDString:@(peripheral_uuid)];
+    NSData *d = [NSData dataWithBytes:data length:(NSUInteger)len];
+    dispatch_async(gBLE.bleQueue, ^{
+        CBPeripheral *p = gBLE.peripherals[uid];
+        if (p) [gBLE sendDataToPeripheral:p data:d];
     });
 }
