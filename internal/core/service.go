@@ -15,6 +15,7 @@ import (
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/hsleedevelop/bdpeer/internal/proto"
 	"github.com/hsleedevelop/bdpeer/internal/transfer"
+	"github.com/hsleedevelop/bdpeer/internal/transport"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	maddr "github.com/multiformats/go-multiaddr"
@@ -62,7 +63,10 @@ type Service struct {
 	stops       []func()
 	events      chan Event
 	mu          sync.Mutex
-	webrtcConns map[string]*bnet.WebRTCConn // peerUUID → active WebRTC conn
+	webrtcConns map[string]*bnet.WebRTCConn // peerUUID → active WebRTC conn (legacy, removed in Task 9)
+	registry    *transport.Registry
+	libp2pT     *transport.Libp2pTransport
+	webrtcT     *transport.WebRTCTransport
 }
 
 func NewService(cfg *config.Config, cfgPath string) *Service {
@@ -71,6 +75,8 @@ func NewService(cfg *config.Config, cfgPath string) *Service {
 		cfgPath:     cfgPath,
 		events:      make(chan Event, 256),
 		webrtcConns: make(map[string]*bnet.WebRTCConn),
+		registry:    transport.NewRegistry(),
+		webrtcT:     transport.NewWebRTCTransport(),
 	}
 }
 
@@ -104,6 +110,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("new host: %w", err)
 	}
+	s.libp2pT = transport.NewLibp2pTransport(s.host)
 	localAddr := bnet.FirstTCPAddr(s.host)
 	s.events <- Event{Type: EventReady, LocalAddr: localAddr}
 	s.log("호스트 준비 완료 → " + localAddr)
