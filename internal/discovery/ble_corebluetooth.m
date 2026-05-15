@@ -41,6 +41,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @interface BDPeerBLE : NSObject <CBPeripheralManagerDelegate, CBCentralManagerDelegate, CBPeripheralDelegate>
 
 @property (nonatomic, copy) NSString *myNickname;
+@property (nonatomic, strong) dispatch_queue_t bleQueue;
 
 // Peripheral side
 @property (nonatomic, strong) CBPeripheralManager      *peripheralMgr;
@@ -68,9 +69,9 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 }
 
 - (void)start {
-    dispatch_queue_t q = dispatch_queue_create("bdpeer.ble", DISPATCH_QUEUE_SERIAL);
-    _peripheralMgr = [[CBPeripheralManager alloc] initWithDelegate:self queue:q];
-    _centralMgr    = [[CBCentralManager    alloc] initWithDelegate:self queue:q];
+    _bleQueue      = dispatch_queue_create("bdpeer.ble", DISPATCH_QUEUE_SERIAL);
+    _peripheralMgr = [[CBPeripheralManager alloc] initWithDelegate:self queue:_bleQueue];
+    _centralMgr    = [[CBCentralManager    alloc] initWithDelegate:self queue:_bleQueue];
 }
 
 - (void)stop {
@@ -268,11 +269,20 @@ void ble_stop(void) {
 }
 
 void ble_peripheral_send_sdp(const char *sdp, char sdp_type) {
-    [gBLE sendSDPToAllCentrals:@(sdp) type:sdp_type];
+    // Dispatch to the BLE queue — CoreBluetooth requires calls on its designated queue.
+    NSString *sdpStr = @(sdp);
+    char type = sdp_type;
+    dispatch_async(gBLE.bleQueue, ^{
+        [gBLE sendSDPToAllCentrals:sdpStr type:type];
+    });
 }
 
 void ble_central_send_sdp(const char *peer_uuid, const char *sdp, char sdp_type) {
     NSUUID *uid = [[NSUUID alloc] initWithUUIDString:@(peer_uuid)];
-    CBPeripheral *p = gBLE.peripherals[uid];
-    if (p) [gBLE sendSDPToPeripheral:p sdp:@(sdp) type:sdp_type];
+    NSString *sdpStr = @(sdp);
+    char type = sdp_type;
+    dispatch_async(gBLE.bleQueue, ^{
+        CBPeripheral *p = gBLE.peripherals[uid];
+        if (p) [gBLE sendSDPToPeripheral:p sdp:sdpStr type:type];
+    });
 }

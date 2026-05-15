@@ -80,10 +80,11 @@ func (u *BLEWebRTCUpgrader) OnBLEPeerFound(ctx context.Context, peerNickname, pe
 
 		// Gathering gets a shorter deadline: just candidate collection.
 		gatherCtx, gatherCancel := context.WithTimeout(connectCtx, gatherTimeout)
+		u.log("[ICE] candidate 수집 중...")
 		conn, offerSDP, err := NewWebRTCOffer(gatherCtx, u.TURNServers)
 		gatherCancel()
 		if err != nil {
-			u.log("[BLE→WTC] offer 실패: " + err.Error())
+			u.log("[ICE] offer 실패: " + err.Error())
 			return
 		}
 
@@ -124,10 +125,11 @@ func (u *BLEWebRTCUpgrader) OnSDPReceived(ctx context.Context, peerUUID, sdp str
 			defer connectCancel()
 
 			gatherCtx, gatherCancel := context.WithTimeout(connectCtx, gatherTimeout)
+			u.log("[ICE] candidate 수집 중 (응답자)...")
 			conn, answerSDP, err := NewWebRTCAnswer(gatherCtx, sdp, u.TURNServers)
 			gatherCancel()
 			if err != nil {
-				u.log("[BLE→WTC] answer 실패: " + err.Error())
+				u.log("[ICE] answer 실패: " + err.Error())
 				return
 			}
 

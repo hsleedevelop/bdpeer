@@ -100,11 +100,13 @@ func NewWebRTCOffer(ctx context.Context, turnServers []config.TURNServer) (*WebR
 	}
 
 	// Wait for ICE gathering to complete (or context cancel).
+	// pc.Close() is called asynchronously to avoid blocking if pion's internal
+	// TURN allocation goroutines are stuck on network I/O with no cancellation.
 	gathering := webrtc.GatheringCompletePromise(pc)
 	select {
 	case <-gathering:
 	case <-ctx.Done():
-		pc.Close()
+		go pc.Close()
 		return nil, "", ctx.Err()
 	}
 
@@ -145,7 +147,7 @@ func NewWebRTCAnswer(ctx context.Context, offerSDP string, turnServers []config.
 	select {
 	case <-gathering:
 	case <-ctx.Done():
-		pc.Close()
+		go pc.Close()
 		return nil, "", ctx.Err()
 	}
 
