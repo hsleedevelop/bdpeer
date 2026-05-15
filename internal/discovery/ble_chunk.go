@@ -49,8 +49,21 @@ func (a *ChunkAssembler) Feed(peerKey string, chunk []byte) ([]byte, bool) {
 	if len(chunk) < bleChunkHdr {
 		return nil, false
 	}
+	if chunk[0] != bleDataType {
+		return nil, false
+	}
 	idx := uint16(chunk[1])<<8 | uint16(chunk[2])
 	total := uint16(chunk[3])<<8 | uint16(chunk[4])
+
+	if total == 0 {
+		return nil, false
+	}
+	if idx != 0 {
+		if _, ok := a.bufs[peerKey]; !ok {
+			return nil, false
+		}
+	}
+
 	payload := chunk[bleChunkHdr:]
 
 	if idx == 0 {
@@ -64,4 +77,10 @@ func (a *ChunkAssembler) Feed(peerKey string, chunk []byte) ([]byte, bool) {
 		return result, true
 	}
 	return nil, false
+}
+
+// Reset discards any partial assembly state for peerKey.
+// Call when a peer disconnects to prevent stale buffer accumulation.
+func (a *ChunkAssembler) Reset(peerKey string) {
+	delete(a.bufs, peerKey)
 }
