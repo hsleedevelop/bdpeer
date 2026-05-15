@@ -71,17 +71,20 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 			}
 			peerAddr := d.Address.String()
 			mgr.Notify(DiscoveredPeer{Nickname: nick, Addr: peerAddr, Source: "ble"})
-			go connectAndSubscribe(ctx, adapter, d, nick, peerAddr, mgr)
+			go connectAndSubscribe(ctx, adapter, d, peerAddr, mgr)
 		})
 	}()
 	<-ctx.Done()
 	return nil
 }
 
-func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d bluetooth.ScanResult, nick, peerAddr string, mgr *Manager) {
-	linuxDataCharsMu.RLock()
+func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d bluetooth.ScanResult, peerAddr string, mgr *Manager) {
+	linuxDataCharsMu.Lock()
 	_, already := linuxDataChars[peerAddr]
-	linuxDataCharsMu.RUnlock()
+	if !already {
+		linuxDataChars[peerAddr] = bluetooth.DeviceCharacteristic{} // sentinel: connection in progress
+	}
+	linuxDataCharsMu.Unlock()
 	if already {
 		return
 	}
@@ -93,6 +96,12 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 	go func() {
 		<-ctx.Done()
 		dev.Disconnect()
+		linuxDataCharsMu.Lock()
+		delete(linuxDataChars, peerAddr)
+		linuxDataCharsMu.Unlock()
+		linuxAssemblerMu.Lock()
+		linuxAssembler.Reset(peerAddr)
+		linuxAssemblerMu.Unlock()
 	}()
 
 	srvcs, err := dev.DiscoverServices([]bluetooth.UUID{bleServiceUUID})
@@ -126,7 +135,7 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 	linuxDataChars[peerAddr] = dataChar
 	linuxDataCharsMu.Unlock()
 
-	dataChar.EnableNotifications(func(buf []byte) {
+	if err := dataChar.EnableNotifications(func(buf []byte) {
 		linuxAssemblerMu.Lock()
 		assembled, done := linuxAssembler.Feed(peerAddr, buf)
 		linuxAssemblerMu.Unlock()
@@ -139,7 +148,12 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 		if cb != nil {
 			cb(peerAddr, assembled)
 		}
-	})
+	}); err != nil {
+		linuxDataCharsMu.Lock()
+		delete(linuxDataChars, peerAddr)
+		linuxDataCharsMu.Unlock()
+		return
+	}
 }
 
 func extractBLENickname(data []bluetooth.ManufacturerDataElement) string {
