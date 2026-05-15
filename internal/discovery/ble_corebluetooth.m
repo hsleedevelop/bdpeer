@@ -126,15 +126,20 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 - (void)peripheralManager:(CBPeripheralManager *)pm
                   central:(CBCentral *)central
 didSubscribeToCharacteristic:(CBCharacteristic *)characteristic {
-    if (![characteristic.UUID isEqual:sdpUUID()]) return;
+    if (![characteristic.UUID isEqual:sdpUUID()] &&
+        ![characteristic.UUID isEqual:dataUUID()]) return;
     [_subscribedCentrals addObject:central];
-    go_ble_central_subscribed([central.identifier.UUIDString UTF8String]);
+    if ([characteristic.UUID isEqual:sdpUUID()]) {
+        go_ble_central_subscribed([central.identifier.UUIDString UTF8String]);
+    }
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)pm
                   central:(CBCentral *)central
 didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
-    [_subscribedCentrals removeObject:central];
+    if ([characteristic.UUID isEqual:sdpUUID()]) {
+        [_subscribedCentrals removeObject:central];
+    }
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)pm
@@ -278,6 +283,7 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
                     key:(NSString *)key {
     if (chunk.length < CHUNK_HDR) return;
     const uint8_t *b = chunk.bytes;
+    if ((char)b[0] != 'D') return;
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
 
@@ -294,6 +300,7 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
 // ── Data send helpers ─────────────────────────────────────────────────────────
 
 - (void)sendDataToCentral:(NSString *)centralUUID data:(NSData *)data {
+    if (data.length == 0) return;
     CBCentral *target = nil;
     for (CBCentral *c in _subscribedCentrals) {
         if ([c.identifier.UUIDString isEqualToString:centralUUID]) {
@@ -316,6 +323,7 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
 }
 
 - (void)sendDataToPeripheral:(CBPeripheral *)p data:(NSData *)data {
+    if (data.length == 0) return;
     CBCharacteristic *dataC = nil;
     for (CBService *s in p.services)
         for (CBCharacteristic *c in s.characteristics)
