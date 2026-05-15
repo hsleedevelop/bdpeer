@@ -137,7 +137,8 @@ didSubscribeToCharacteristic:(CBCharacteristic *)characteristic {
 - (void)peripheralManager:(CBPeripheralManager *)pm
                   central:(CBCentral *)central
 didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
-    if ([characteristic.UUID isEqual:sdpUUID()]) {
+    if ([characteristic.UUID isEqual:sdpUUID()] ||
+        [characteristic.UUID isEqual:dataUUID()]) {
         [_subscribedCentrals removeObject:central];
     }
 }
