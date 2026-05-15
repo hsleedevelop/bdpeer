@@ -270,7 +270,6 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 				return
 			}
 			s.events <- Event{Type: EventFileDone, From: frame.From, Name: frame.Name, Path: savePath}
-			return // file stream consumed the rest of this logical stream
 		}
 	}
 }

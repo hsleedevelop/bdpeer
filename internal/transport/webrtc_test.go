@@ -110,6 +110,59 @@ func TestWebRTCTransport_OpenStreamUnknownPeer(t *testing.T) {
 	}
 }
 
+func TestWebRTCTransport_MultipleMessagesAfterHandlerReturn(t *testing.T) {
+	connA, connB := newWebRTCPair(t)
+	defer connA.Close()
+	defer connB.Close()
+
+	tA := NewWebRTCTransport()
+	tB := NewWebRTCTransport()
+
+	received := make(chan proto.Frame, 4)
+
+	// Loop-style handler that reads frames in a loop (mimics Service.onInboundStream).
+	tB.SetHandler(func(_ PeerID, stream io.ReadWriteCloser) {
+		for {
+			f, err := transfer.ReadFrame(stream)
+			if err != nil {
+				return
+			}
+			received <- f
+		}
+	})
+
+	tA.Attach("peerB", connA)
+	tB.Attach("peerA", connB)
+
+	// Send two text frames in succession; both must be received.
+	for _, content := range []string{"one", "two"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		stream, err := tA.OpenStream(ctx, "peerB")
+		cancel()
+		if err != nil {
+			t.Fatalf("OpenStream: %v", err)
+		}
+		if err := transfer.WriteFrame(stream, proto.Frame{Type: proto.FrameText, From: "A", Content: content}); err != nil {
+			t.Fatalf("WriteFrame: %v", err)
+		}
+		stream.Close()
+	}
+
+	timeout := time.After(5 * time.Second)
+	var got []string
+	for i := 0; i < 2; i++ {
+		select {
+		case f := <-received:
+			got = append(got, f.Content)
+		case <-timeout:
+			t.Fatalf("timeout: received %d/2 frames so far (%v)", i, got)
+		}
+	}
+	if got[0] != "one" || got[1] != "two" {
+		t.Fatalf("unexpected order/content: %v", got)
+	}
+}
+
 func TestWebRTCTransport_OpenStreamSerializesPerPeer(t *testing.T) {
 	connA, connB := newWebRTCPair(t)
 	defer connA.Close()
