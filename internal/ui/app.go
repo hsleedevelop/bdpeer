@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,6 +11,14 @@ import (
 	"github.com/hsleedevelop/bdpeer/internal/core"
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
 	"github.com/libp2p/go-libp2p/core/peer"
+)
+
+type focusArea int
+
+const (
+	focusPeers focusArea = iota
+	focusChat
+	focusFiles
 )
 
 type Screen int
@@ -66,6 +76,12 @@ type Model struct {
 	sendCh     chan<- core.SendRequest
 	nickCh     chan<- string
 	connectCh  chan<- string
+
+	focus       focusArea
+	fileCwd     string
+	fileEntries []fileEntry
+	fileIdx     int
+	confirmPath string
 }
 
 func New(nickname string) Model {
@@ -73,7 +89,18 @@ func New(nickname string) Model {
 	if nickname == "" {
 		screen = ScreenSetup
 	}
-	return Model{screen: screen, nickname: nickname, showLog: true}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd, _ = os.UserHomeDir()
+	}
+	return Model{
+		screen:      screen,
+		nickname:    nickname,
+		showLog:     true,
+		focus:       focusChat,
+		fileCwd:     cwd,
+		fileEntries: readDir(cwd),
+	}
 }
 
 func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string, connectCh chan<- string) Model {
@@ -136,16 +163,23 @@ func mainView(m Model) string {
 		return "loading..."
 	}
 	leftW := 22
-	rightW := m.width - leftW - 4
-
-	left := peerListView(m, leftW, m.height-2)
-
-	var right string
-	if m.showLog {
-		right = logView(m, rightW, m.height-2)
-	} else {
-		right = chatView(m, rightW, m.height-2)
+	filesW := 32
+	midW := m.width - leftW - filesW - 6
+	if midW < 20 {
+		midW = 20
 	}
+	h := m.height - 2
+
+	left := peerListView(m, leftW, h)
+
+	var mid string
+	if m.showLog {
+		mid = logView(m, midW, h)
+	} else {
+		mid = chatView(m, midW, h)
+	}
+
+	right := fileTreeView(m, filesW, h)
 
 	addrHint := ""
 	if m.localAddr != "" {
@@ -155,13 +189,14 @@ func mainView(m Model) string {
 	if m.showLog {
 		logToggle = "  [Tab: 채팅]"
 	}
+	focusHint := "  " + focusBar(m.focus)
 	title := lipgloss.NewStyle().
 		Width(m.width).
 		Foreground(colorPrimary).
 		Bold(true).
-		Render(fmt.Sprintf(" bdpeer  [%s]%s%s", m.nickname, addrHint, logToggle))
+		Render(fmt.Sprintf(" bdpeer  [%s]%s%s%s", m.nickname, addrHint, logToggle, focusHint))
 
-	row := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	row := lipgloss.JoinHorizontal(lipgloss.Top, left, mid, right)
 	return title + "\n" + row
 }
 
@@ -173,9 +208,59 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	if m.confirmPath != "" {
+		switch strings.ToLower(msg.String()) {
+		case "y":
+			path := m.confirmPath
+			m.confirmPath = ""
+			if m.activePeer != nil && m.sendCh != nil {
+				select {
+				case m.sendCh <- core.SendRequest{To: m.activePeer.ID, File: path}:
+				default:
+				}
+			}
+		case "n", "esc":
+			m.confirmPath = ""
+		}
+		return m, nil
+	}
+
+	if msg.Type == tea.KeyCtrlC {
 		return m, tea.Quit
+	}
+
+	switch m.focus {
+	case focusFiles:
+		return m.handleFilesKey(msg)
+	case focusPeers:
+		return m.handlePeersKey(msg)
+	}
+
+	// focusChat: pre-check panel shortcuts when input is empty.
+	if m.inputBuf == "" && msg.Type == tea.KeyRunes {
+		switch msg.String() {
+		case "1":
+			m.focus = focusPeers
+			return m, nil
+		case "3":
+			m.focus = focusFiles
+			return m, nil
+		}
+	}
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m, tea.Quit
+	case tea.KeyRight:
+		if m.inputBuf == "" {
+			m.focus = focusFiles
+			return m, nil
+		}
+	case tea.KeyLeft:
+		if m.inputBuf == "" {
+			m.focus = focusPeers
+			return m, nil
+		}
 	case tea.KeyTab:
 		m.showLog = !m.showLog
 		return m, nil
@@ -245,6 +330,88 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.inputBuf += string(msg.Runes)
 		}
+	}
+	return m, nil
+}
+
+func (m Model) handlePeersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m, tea.Quit
+	case tea.KeyUp:
+		m.activePeer = prevPeer(m.peers, m.activePeer)
+	case tea.KeyDown:
+		m.activePeer = nextPeer(m.peers, m.activePeer)
+	case tea.KeyTab:
+		m.showLog = !m.showLog
+	case tea.KeyRight:
+		m.focus = focusChat
+	case tea.KeyEnter:
+		if m.activePeer == nil && len(m.peers) > 0 {
+			p := m.peers[0]
+			m.activePeer = &p
+		}
+		if m.activePeer != nil {
+			m.showLog = false
+		}
+		m.focus = focusChat
+	case tea.KeyRunes:
+		switch msg.String() {
+		case "2":
+			m.focus = focusChat
+		case "3":
+			m.focus = focusFiles
+		case "q":
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyRunes {
+		switch msg.String() {
+		case "1":
+			m.focus = focusPeers
+			return m, nil
+		case "2":
+			m.focus = focusChat
+			return m, nil
+		}
+	}
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m, tea.Quit
+	case tea.KeyLeft:
+		m.focus = focusChat
+		return m, nil
+	case tea.KeyUp:
+		if m.fileIdx > 0 {
+			m.fileIdx--
+		}
+	case tea.KeyDown:
+		if m.fileIdx < len(m.fileEntries)-1 {
+			m.fileIdx++
+		}
+	case tea.KeyEnter:
+		if m.fileIdx < 0 || m.fileIdx >= len(m.fileEntries) {
+			return m, nil
+		}
+		e := m.fileEntries[m.fileIdx]
+		full := filepath.Join(m.fileCwd, e.Name)
+		if e.IsDir {
+			if e.Name == ".." {
+				full = filepath.Dir(m.fileCwd)
+			}
+			m.fileCwd = full
+			m.fileEntries = readDir(full)
+			m.fileIdx = 0
+			return m, nil
+		}
+		if m.activePeer == nil {
+			return m, nil
+		}
+		m.confirmPath = full
 	}
 	return m, nil
 }
