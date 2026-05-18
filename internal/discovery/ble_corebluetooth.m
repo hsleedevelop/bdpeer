@@ -53,6 +53,9 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableSet<CBCentral *> *subscribedCentrals;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralDataBufs;
+// Pending notify queue — drained when peripheralManagerIsReadyToUpdateSubscribers fires.
+// Each entry: @{ @"chunk": NSData, @"char": CBMutableCharacteristic, @"centrals": NSArray<CBCentral*>|NSNull }
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *pendingNotifies;
 
 // Central side
 @property (nonatomic, strong) CBCentralManager *centralMgr;
@@ -70,6 +73,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
     _subscribedCentrals = [NSMutableSet new];
     _centralSDPBufs     = [NSMutableDictionary new];
     _centralDataBufs    = [NSMutableDictionary new];
+    _pendingNotifies    = [NSMutableArray new];
     _peripherals        = [NSMutableDictionary new];
     _peripheralSDPBufs  = [NSMutableDictionary new];
     _peripheralDataBufs = [NSMutableDictionary new];
@@ -161,22 +165,67 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     }
 }
 
+// Try to send chunk via updateValue. If CoreBluetooth's transmit queue is full,
+// queue the chunk (and all remaining chunks) for retry from peripheralManagerIsReadyToUpdateSubscribers:.
+// Returns YES if sent immediately, NO if queued.
+- (BOOL)notifyOrQueueChunk:(NSData *)chunk
+                   forChar:(CBMutableCharacteristic *)ch
+                toCentrals:(NSArray<CBCentral *> *)centrals {
+    BOOL ok = [_peripheralMgr updateValue:chunk forCharacteristic:ch onSubscribedCentrals:centrals];
+    if (ok) return YES;
+    [_pendingNotifies addObject:@{
+        @"chunk":    chunk,
+        @"char":     ch,
+        @"centrals": centrals ?: (id)[NSNull null],
+    }];
+    return NO;
+}
+
 // Send SDP answer to all subscribed centrals.
 - (void)sendSDPToAllCentrals:(NSString *)sdp type:(char)type {
     NSData *raw = [sdp dataUsingEncoding:NSUTF8StringEncoding];
     uint16_t total = (uint16_t)((raw.length + CHUNK_BODY - 1) / CHUNK_BODY);
     NSLog(@"[BLE-diag] sendSDPToAllCentrals type=%c bytes=%lu chunks=%u subscribers=%lu",
           type, (unsigned long)raw.length, total, (unsigned long)_subscribedCentrals.count);
+    NSArray *centrals = _subscribedCentrals.allObjects;
     for (uint16_t i = 0; i < total; i++) {
         NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
         NSUInteger len    = MIN(CHUNK_BODY, raw.length - offset);
         NSData *chunk = makeChunk(type, i, total, raw, offset, len);
-        BOOL ok = [_peripheralMgr updateValue:chunk
-                            forCharacteristic:_sdpChar
-                         onSubscribedCentrals:_subscribedCentrals.allObjects];
-        NSLog(@"[BLE-diag] notify chunk %u/%u len=%lu ok=%d",
-              i+1, total, (unsigned long)chunk.length, ok);
+        BOOL sent = [self notifyOrQueueChunk:chunk forChar:_sdpChar toCentrals:centrals];
+        NSLog(@"[BLE-diag] notify chunk %u/%u len=%lu sent=%d pending=%lu",
+              i+1, total, (unsigned long)chunk.length, sent, (unsigned long)_pendingNotifies.count);
+        if (!sent) {
+            // Queue the remaining chunks as well — they must arrive in order.
+            for (uint16_t j = i + 1; j < total; j++) {
+                NSUInteger off2 = (NSUInteger)j * CHUNK_BODY;
+                NSUInteger l2   = MIN(CHUNK_BODY, raw.length - off2);
+                NSData *c2 = makeChunk(type, j, total, raw, off2, l2);
+                [_pendingNotifies addObject:@{
+                    @"chunk":    c2,
+                    @"char":     _sdpChar,
+                    @"centrals": centrals ?: (id)[NSNull null],
+                }];
+            }
+            return;
+        }
         [NSThread sleepForTimeInterval:0.01]; // pacing
+    }
+}
+
+// CoreBluetooth signals it can accept more notifications. Drain the pending queue.
+- (void)peripheralManagerIsReadyToUpdateSubscribers:(CBPeripheralManager *)pm {
+    while (_pendingNotifies.count > 0) {
+        NSDictionary *e = _pendingNotifies.firstObject;
+        NSData *chunk = e[@"chunk"];
+        CBMutableCharacteristic *ch = e[@"char"];
+        id rawCentrals = e[@"centrals"];
+        NSArray *centrals = (rawCentrals == [NSNull null]) ? nil : rawCentrals;
+        BOOL ok = [pm updateValue:chunk forCharacteristic:ch onSubscribedCentrals:centrals];
+        NSLog(@"[BLE-diag] drain pending len=%lu ok=%d remaining=%lu",
+              (unsigned long)chunk.length, ok, (unsigned long)(_pendingNotifies.count - (ok ? 1 : 0)));
+        if (!ok) return; // queue full again — wait for next ready callback
+        [_pendingNotifies removeObjectAtIndex:0];
     }
 }
 
@@ -322,14 +371,26 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     }
     if (!target) return;
 
+    NSArray *centrals = @[target];
     uint16_t total = (uint16_t)((data.length + CHUNK_BODY - 1) / CHUNK_BODY);
     for (uint16_t i = 0; i < total; i++) {
         NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
         NSUInteger len    = MIN(CHUNK_BODY, data.length - offset);
         NSData *chunk = makeChunk('D', i, total, data, offset, len);
-        [_peripheralMgr updateValue:chunk
-                  forCharacteristic:_dataChar
-               onSubscribedCentrals:@[target]];
+        BOOL sent = [self notifyOrQueueChunk:chunk forChar:_dataChar toCentrals:centrals];
+        if (!sent) {
+            for (uint16_t j = i + 1; j < total; j++) {
+                NSUInteger off2 = (NSUInteger)j * CHUNK_BODY;
+                NSUInteger l2   = MIN(CHUNK_BODY, data.length - off2);
+                NSData *c2 = makeChunk('D', j, total, data, off2, l2);
+                [_pendingNotifies addObject:@{
+                    @"chunk":    c2,
+                    @"char":     _dataChar,
+                    @"centrals": centrals,
+                }];
+            }
+            return;
+        }
         [NSThread sleepForTimeInterval:0.01];
     }
 }
