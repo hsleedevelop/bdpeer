@@ -185,17 +185,12 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 - (void)sendSDPToAllCentrals:(NSString *)sdp type:(char)type {
     NSData *raw = [sdp dataUsingEncoding:NSUTF8StringEncoding];
     uint16_t total = (uint16_t)((raw.length + CHUNK_BODY - 1) / CHUNK_BODY);
-    NSLog(@"[BLE-diag] sendSDPToAllCentrals type=%c bytes=%lu chunks=%u subscribers=%lu",
-          type, (unsigned long)raw.length, total, (unsigned long)_subscribedCentrals.count);
     NSArray *centrals = _subscribedCentrals.allObjects;
     for (uint16_t i = 0; i < total; i++) {
         NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
         NSUInteger len    = MIN(CHUNK_BODY, raw.length - offset);
         NSData *chunk = makeChunk(type, i, total, raw, offset, len);
-        BOOL sent = [self notifyOrQueueChunk:chunk forChar:_sdpChar toCentrals:centrals];
-        NSLog(@"[BLE-diag] notify chunk %u/%u len=%lu sent=%d pending=%lu",
-              i+1, total, (unsigned long)chunk.length, sent, (unsigned long)_pendingNotifies.count);
-        if (!sent) {
+        if (![self notifyOrQueueChunk:chunk forChar:_sdpChar toCentrals:centrals]) {
             // Queue the remaining chunks as well — they must arrive in order.
             for (uint16_t j = i + 1; j < total; j++) {
                 NSUInteger off2 = (NSUInteger)j * CHUNK_BODY;
@@ -221,10 +216,9 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         CBMutableCharacteristic *ch = e[@"char"];
         id rawCentrals = e[@"centrals"];
         NSArray *centrals = (rawCentrals == [NSNull null]) ? nil : rawCentrals;
-        BOOL ok = [pm updateValue:chunk forCharacteristic:ch onSubscribedCentrals:centrals];
-        NSLog(@"[BLE-diag] drain pending len=%lu ok=%d remaining=%lu",
-              (unsigned long)chunk.length, ok, (unsigned long)(_pendingNotifies.count - (ok ? 1 : 0)));
-        if (!ok) return; // queue full again — wait for next ready callback
+        if (![pm updateValue:chunk forCharacteristic:ch onSubscribedCentrals:centrals]) {
+            return; // queue full again — wait for next ready callback
+        }
         [_pendingNotifies removeObjectAtIndex:0];
     }
 }
@@ -283,8 +277,6 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     }
 
     if ([c.UUID isEqual:sdpUUID()]) {
-        NSLog(@"[BLE-diag] central rx SDP notify peer=%@ len=%lu",
-              p.identifier.UUIDString, (unsigned long)c.value.length);
         [self handleChunk:c.value
                  inBufMap:_peripheralSDPBufs
                       key:p.identifier.UUIDString];

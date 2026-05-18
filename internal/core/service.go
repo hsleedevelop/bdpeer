@@ -243,7 +243,6 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 		if err != nil {
 			return
 		}
-		s.log(fmt.Sprintf("[rx-diag] from=%s type=%s contentLen=%d", from, frame.Type, len(frame.Content)))
 		switch frame.Type {
 		case proto.FrameText:
 			s.events <- Event{Type: EventTextReceived, From: frame.From, Content: frame.Content}

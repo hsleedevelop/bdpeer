@@ -39,14 +39,62 @@ func (m *Manager) Notify(p DiscoveredPeer) {
 		return
 	}
 	m.mu.Lock()
-	_, exists := m.seen[key]
+	// Merge with an existing entry under a different key but same nickname —
+	// e.g. BLE provisional entry (peripheral UUID) being upgraded by an
+	// inbound Hello arriving under the remote's central UUID. Keeping the
+	// original key prevents duplicate UI rows.
+	if p.Nickname != "" {
+		for k, existing := range m.seen {
+			if k == key || existing.Nickname != p.Nickname {
+				continue
+			}
+			merged := existing
+			if p.Source != "" {
+				merged.Source = p.Source
+			}
+			if len(p.Addrs) > 0 {
+				merged.Addrs = p.Addrs
+			}
+			if p.Addr != "" {
+				merged.Addr = p.Addr
+			}
+			changed := merged.Source != existing.Source ||
+				len(merged.Addrs) != len(existing.Addrs) ||
+				merged.Addr != existing.Addr
+			m.seen[k] = merged
+			m.mu.Unlock()
+			if changed && m.OnPeerFound != nil {
+				m.OnPeerFound(merged)
+			}
+			return
+		}
+	}
+	existing, exists := m.seen[key]
 	if !exists {
 		m.seen[key] = p
+		m.mu.Unlock()
+		if m.OnPeerFound != nil {
+			m.OnPeerFound(p)
+		}
+		return
 	}
+	merged := existing
+	if p.Source != "" {
+		merged.Source = p.Source
+	}
+	if p.Nickname != "" {
+		merged.Nickname = p.Nickname
+	}
+	if len(p.Addrs) > 0 {
+		merged.Addrs = p.Addrs
+	}
+	changed := merged.Source != existing.Source ||
+		merged.Nickname != existing.Nickname ||
+		len(merged.Addrs) != len(existing.Addrs)
+	m.seen[key] = merged
 	m.mu.Unlock()
-
-	if !exists && m.OnPeerFound != nil {
-		m.OnPeerFound(p)
+	if changed && m.OnPeerFound != nil {
+		m.OnPeerFound(merged)
 	}
 }
 
