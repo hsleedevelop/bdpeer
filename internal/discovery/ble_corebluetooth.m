@@ -129,7 +129,10 @@ didSubscribeToCharacteristic:(CBCharacteristic *)characteristic {
     if (![characteristic.UUID isEqual:sdpUUID()] &&
         ![characteristic.UUID isEqual:dataUUID()]) return;
     [_subscribedCentrals addObject:central];
-    if ([characteristic.UUID isEqual:sdpUUID()]) {
+    // Fire on DataChar subscription so the responder's BLE Hello notify
+    // is delivered (CoreBluetooth drops notifications to non-subscribers).
+    // SDP exchange does not depend on this callback — it uses _subscribedCentrals directly.
+    if ([characteristic.UUID isEqual:dataUUID()]) {
         go_ble_central_subscribed([central.identifier.UUIDString UTF8String]);
     }
 }
