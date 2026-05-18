@@ -125,11 +125,13 @@ make build-linux    # Linux amd64 (BLE 스캔 포함)
 | mDNS/Bonjour (`_bdpeer._tcp`) | macOS, iOS, Android, Windows 10+ | 로컬 Wi-Fi 자동 발견 |
 | SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
-| BLE + WebRTC | macOS (기본 내장, CoreBluetooth) | BLE로 발견 → WebRTC로 연결 — **다른 서브넷·NAT 무관** |
-| BLE 스캔 | Linux, Windows (기본 내장, tinygo) | 근거리 근접 발견 |
+| BLE + WebRTC | macOS (기본 내장, CoreBluetooth) | BLE로 발견 → WebRTC로 연결 — **다른 서브넷·NAT 무관** (실패 시 BLE 직접 전송) |
+| BLE GATT | Linux (기본 내장, tinygo) | BLE 발견 + GATT DataChar로 직접 메시지 송수신 |
+| BLE 스캔 | Windows (기본 내장, tinygo) | 근거리 근접 발견 |
 | libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
 > **BLE→WebRTC**: macOS 기본 바이너리에 포함(별도 빌드 불필요). BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다. v0.3.5부터 ICE gathering 타임아웃 시 연결을 끊지 않고 수집된 candidate로 핸드셰이크를 계속 진행하여 기업망 등 STUN/TURN 응답이 느린 환경에서도 연결 성공률이 향상됩니다.  
+> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 WebRTC 업그레이드 전·도중에도 BLE 폴백으로 즉시 통신이 가능하며 WebRTC가 성공하면 자동으로 전환됩니다. macOS↔Linux는 BLE GATT만으로 통신합니다. 단, BLE 대역폭(~10KB/s) 한계로 파일 전송은 지원하지 않습니다.  
 > **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
@@ -169,8 +171,8 @@ BLE→WebRTC는 STUN 실패 시 Open Relay Project TURN 서버를 자동으로 �
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI 프레임워크
 - [zeroconf](https://github.com/grandcat/zeroconf) — mDNS/Bonjour
 - [go-ssdp](https://github.com/koron/go-ssdp) — SSDP/UPnP
-- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE 스캔, Linux/Windows
-- [CoreBluetooth](https://developer.apple.com/documentation/corebluetooth) — BLE peripheral+central+WebRTC 시그널링, macOS
+- [tinygo bluetooth](https://github.com/tinygo-org/bluetooth) — BLE 스캔 + GATT central (Linux DataChar 송수신, Windows)
+- [CoreBluetooth](https://developer.apple.com/documentation/corebluetooth) — BLE peripheral+central+WebRTC 시그널링+DataChar 데이터 전송, macOS
 - [pion/webrtc](https://github.com/pion/webrtc) — WebRTC STUN/TURN NAT traversal (`v4`)
 
 ## 라이선스
