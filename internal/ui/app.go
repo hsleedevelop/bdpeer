@@ -185,6 +185,18 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activePeer = nextPeer(m.peers, m.activePeer)
 	case tea.KeyEnter:
 		content := strings.TrimSpace(m.inputBuf)
+		// Empty Enter in log view: jump to chat with the selected peer.
+		// Auto-select the first peer if none is highlighted yet.
+		if content == "" && m.showLog {
+			if m.activePeer == nil && len(m.peers) > 0 {
+				p := m.peers[0]
+				m.activePeer = &p
+			}
+			if m.activePeer != nil {
+				m.showLog = false
+			}
+			return m, nil
+		}
 		if content == "" {
 			return m, nil
 		}
