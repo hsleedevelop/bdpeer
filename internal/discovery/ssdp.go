@@ -8,17 +8,28 @@ import (
 	"time"
 
 	"github.com/koron/go-ssdp"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
 
 const ssdpType = "urn:bdpeer-org:device:BdPeer:1"
 
-func AdvertiseSSDP(ctx context.Context, nickname string, port int) (stop func(), err error) {
+// AdvertiseSSDP announces this peer on the local network. ip should be a
+// routable interface address (not 0.0.0.0); peerID is the libp2p host ID so
+// receivers can construct a full multiaddr and dial back.
+func AdvertiseSSDP(ctx context.Context, nickname, ip string, port int, peerID string) (stop func(), err error) {
+	if ip == "" {
+		ip = "0.0.0.0"
+	}
+	server := fmt.Sprintf("bdpeer/%s", nickname)
+	if peerID != "" {
+		server = fmt.Sprintf("bdpeer/%s/%s", nickname, peerID)
+	}
 	ad, err := ssdp.Advertise(
 		ssdpType,
 		fmt.Sprintf("uuid:bdpeer-%s", nickname),
-		fmt.Sprintf("http://0.0.0.0:%d/bdpeer.xml", port),
-		fmt.Sprintf("bdpeer/%s", nickname),
+		fmt.Sprintf("http://%s:%d/bdpeer.xml", ip, port),
+		server,
 		1800,
 	)
 	if err != nil {
@@ -51,12 +62,12 @@ func SearchSSDP(ctx context.Context, mgr *Manager) (stop func(), err error) {
 			return
 		}
 		for _, srv := range list {
-			nickname := parseSSDPNickname(srv.Server)
+			nickname, pid := parseSSDPServer(srv.Server)
 			ma := parseSSDPAddr(srv.Location)
 			if nickname == "" || ma == nil {
 				continue
 			}
-			mgr.Notify(DiscoveredPeer{Nickname: nickname, Addrs: []multiaddr.Multiaddr{ma}, Source: "ssdp"})
+			mgr.Notify(DiscoveredPeer{ID: pid, Nickname: nickname, Addrs: []multiaddr.Multiaddr{ma}, Source: "ssdp"})
 		}
 
 		mon := &ssdp.Monitor{
@@ -64,10 +75,10 @@ func SearchSSDP(ctx context.Context, mgr *Manager) (stop func(), err error) {
 				if m.Type != ssdpType {
 					return
 				}
-				nick := parseSSDPNickname(m.Server)
+				nick, pid := parseSSDPServer(m.Server)
 				ma := parseSSDPAddr(m.Location)
 				if nick != "" && ma != nil {
-					mgr.Notify(DiscoveredPeer{Nickname: nick, Addrs: []multiaddr.Multiaddr{ma}, Source: "ssdp"})
+					mgr.Notify(DiscoveredPeer{ID: pid, Nickname: nick, Addrs: []multiaddr.Multiaddr{ma}, Source: "ssdp"})
 				}
 			},
 		}
@@ -81,11 +92,23 @@ func SearchSSDP(ctx context.Context, mgr *Manager) (stop func(), err error) {
 	return cancel, nil
 }
 
-func parseSSDPNickname(server string) string {
-	if idx := strings.Index(server, "bdpeer/"); idx >= 0 {
-		return server[idx+7:]
+// parseSSDPServer parses "bdpeer/<nickname>" or "bdpeer/<nickname>/<peerID>".
+// Returns ("", "") when the prefix is missing.
+func parseSSDPServer(server string) (nickname string, pid peer.ID) {
+	idx := strings.Index(server, "bdpeer/")
+	if idx < 0 {
+		return "", ""
 	}
-	return ""
+	rest := server[idx+len("bdpeer/"):]
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		nickname = rest[:slash]
+		if decoded, err := peer.Decode(rest[slash+1:]); err == nil {
+			pid = decoded
+		}
+	} else {
+		nickname = rest
+	}
+	return nickname, pid
 }
 
 func parseSSDPAddr(location string) multiaddr.Multiaddr {

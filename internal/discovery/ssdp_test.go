@@ -16,7 +16,7 @@ func TestSSDPAdvertiseAndSearch(t *testing.T) {
 	mgr := discovery.NewManager("alice")
 	mgr.OnPeerFound = func(p discovery.DiscoveredPeer) { found <- p }
 
-	stopAdv, err := discovery.AdvertiseSSDP(ctx, "bob", 5002)
+	stopAdv, err := discovery.AdvertiseSSDP(ctx, "bob", "127.0.0.1", 5002, "")
 	if err != nil {
 		t.Fatalf("AdvertiseSSDP: %v", err)
 	}

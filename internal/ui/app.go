@@ -138,6 +138,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case MsgError:
 		m.err = msg.Err
+		if msg.Err != nil {
+			m.logs = append(m.logs, "오류: "+msg.Err.Error())
+		}
 	case MsgLocalAddr:
 		m.localAddr = msg.Addr
 	case MsgLog:
@@ -296,7 +299,14 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputBuf = ""
 			return m, nil
 		}
-		if m.activePeer == nil || m.activePeer.ID == "" {
+		if m.activePeer == nil {
+			m.logs = append(m.logs, "전송 불가: 활성 피어 없음")
+			m.inputBuf = ""
+			return m, nil
+		}
+		if m.activePeer.ID == "" {
+			m.logs = append(m.logs, "전송 불가: '"+m.activePeer.Nickname+"' 의 ID 미확정 (libp2p 연결 전) — /connect 로 직접 연결 시도")
+			m.inputBuf = ""
 			return m, nil
 		}
 		if strings.HasPrefix(content, "/file ") {
@@ -419,7 +429,20 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func appendOrUpdate(peers []bnet.PeerInfo, info bnet.PeerInfo) []bnet.PeerInfo {
 	for i, p := range peers {
 		if samePeer(p, info) {
-			peers[i] = info
+			merged := info
+			if merged.ID == "" {
+				merged.ID = p.ID
+			}
+			if merged.Nickname == "" {
+				merged.Nickname = p.Nickname
+			}
+			if len(merged.Addrs) == 0 {
+				merged.Addrs = p.Addrs
+			}
+			if merged.Source == "" {
+				merged.Source = p.Source
+			}
+			peers[i] = merged
 			return peers
 		}
 	}
@@ -439,6 +462,11 @@ func removePeer(peers []bnet.PeerInfo, id peer.ID) []bnet.PeerInfo {
 func samePeer(a, b bnet.PeerInfo) bool {
 	if a.ID != "" && b.ID != "" {
 		return a.ID == b.ID
+	}
+	// When one side lacks an ID (e.g. SSDP-only entry), fall back to nickname
+	// so the entry can be promoted in-place once Hello arrives.
+	if a.Nickname != "" && b.Nickname != "" && a.Nickname == b.Nickname {
+		return true
 	}
 	if len(a.Addrs) > 0 && len(b.Addrs) > 0 {
 		return a.Addrs[0].String() == b.Addrs[0].String()

@@ -162,6 +162,18 @@ func (s *Service) Start(ctx context.Context) error {
 		s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
 			ID: p.ID, Nickname: p.Nickname, Addrs: p.Addrs, Source: p.Source,
 		}}
+
+		// LAN-discovered peers (SSDP/mDNS) carrying a peer.ID + addrs: try
+		// libp2p Connect so a transport is registered and messages can flow.
+		if (p.Source == "ssdp" || p.Source == "mdns") && p.ID != "" && len(p.Addrs) > 0 {
+			go func() {
+				connCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				if err := s.host.Libp2p.Connect(connCtx, peer.AddrInfo{ID: p.ID, Addrs: p.Addrs}); err != nil {
+					s.log("[" + p.Source + "] " + nick + " 자동 연결 실패: " + err.Error())
+				}
+			}()
+		}
 	}
 	mgr.OnPeerLost = func(p discovery.DiscoveredPeer) {
 		s.events <- Event{Type: EventPeerLost, Peer: bnet.PeerInfo{ID: p.ID}}
@@ -189,7 +201,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.log("[2/4] SSDP/WSD (동일 LAN, Windows) 시작...")
 	if stop, err := discovery.SearchSSDP(ctx, mgr); err == nil {
 		s.stops = append(s.stops, stop)
-		if advStop, err := discovery.AdvertiseSSDP(ctx, s.cfg.Nickname, listenPort(s.host)); err == nil {
+		if advStop, err := discovery.AdvertiseSSDP(ctx, s.cfg.Nickname, listenIP(s.host), listenPort(s.host), s.host.Libp2p.ID().String()); err == nil {
 			s.stops = append(s.stops, advStop)
 			s.log("    ✓ SSDP 광고 완료")
 		}
@@ -326,6 +338,29 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 	return transfer.WriteFrame(stream, proto.Frame{
 		Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content,
 	})
+}
+
+// listenIP returns a routable IPv4 address from the host's listen multiaddrs,
+// preferring non-loopback. Falls back to "0.0.0.0" if none found.
+func listenIP(h *bnet.Host) string {
+	var loopback string
+	for _, a := range h.Libp2p.Addrs() {
+		ip4, err := a.ValueForProtocol(maddr.P_IP4)
+		if err != nil {
+			continue
+		}
+		if ip4 == "127.0.0.1" {
+			if loopback == "" {
+				loopback = ip4
+			}
+			continue
+		}
+		return ip4
+	}
+	if loopback != "" {
+		return loopback
+	}
+	return "0.0.0.0"
 }
 
 func listenPort(h *bnet.Host) int {

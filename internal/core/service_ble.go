@@ -45,6 +45,14 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 				discovery.BLECentralSendData(peerUUID, data)
 			})
 			s.registry.Register(peerKey, s.bleT)
+			// Make the peer visible in the UI right away (provisional entry —
+			// will be refined when WebRTC connects or Hello arrives).
+			mgr.Notify(discovery.DiscoveredPeer{
+				ID:       peer.ID("ble-" + peerUUID),
+				Nickname: nickname,
+				Addr:     peerUUID,
+				Source:   "ble",
+			})
 			// Send Hello over BLE so responder gets our nickname.
 			go s.sendBLEHello(ctx, peerKey)
 			// Start WebRTC upgrade — will overwrite BLE in registry if it succeeds.
