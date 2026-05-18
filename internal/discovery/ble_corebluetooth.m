@@ -165,13 +165,17 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 - (void)sendSDPToAllCentrals:(NSString *)sdp type:(char)type {
     NSData *raw = [sdp dataUsingEncoding:NSUTF8StringEncoding];
     uint16_t total = (uint16_t)((raw.length + CHUNK_BODY - 1) / CHUNK_BODY);
+    NSLog(@"[BLE-diag] sendSDPToAllCentrals type=%c bytes=%lu chunks=%u subscribers=%lu",
+          type, (unsigned long)raw.length, total, (unsigned long)_subscribedCentrals.count);
     for (uint16_t i = 0; i < total; i++) {
         NSUInteger offset = (NSUInteger)i * CHUNK_BODY;
         NSUInteger len    = MIN(CHUNK_BODY, raw.length - offset);
         NSData *chunk = makeChunk(type, i, total, raw, offset, len);
-        [_peripheralMgr updateValue:chunk
-                  forCharacteristic:_sdpChar
-               onSubscribedCentrals:_subscribedCentrals.allObjects];
+        BOOL ok = [_peripheralMgr updateValue:chunk
+                            forCharacteristic:_sdpChar
+                         onSubscribedCentrals:_subscribedCentrals.allObjects];
+        NSLog(@"[BLE-diag] notify chunk %u/%u len=%lu ok=%d",
+              i+1, total, (unsigned long)chunk.length, ok);
         [NSThread sleepForTimeInterval:0.01]; // pacing
     }
 }
@@ -230,6 +234,8 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     }
 
     if ([c.UUID isEqual:sdpUUID()]) {
+        NSLog(@"[BLE-diag] central rx SDP notify peer=%@ len=%lu",
+              p.identifier.UUIDString, (unsigned long)c.value.length);
         [self handleChunk:c.value
                  inBufMap:_peripheralSDPBufs
                       key:p.identifier.UUIDString];
