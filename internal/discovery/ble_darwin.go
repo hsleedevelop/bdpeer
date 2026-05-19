@@ -5,6 +5,7 @@ package discovery
 /*
 #cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework CoreBluetooth -framework Foundation
+#cgo darwin LDFLAGS: -Wl,-sectcreate,__TEXT,__info_plist,${SRCDIR}/Info.plist
 #include "ble_corebluetooth.h"
 #include <stdlib.h>
 */

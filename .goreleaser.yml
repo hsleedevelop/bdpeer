@@ -7,7 +7,10 @@ before:
     - go mod tidy
 
 builds:
-  # darwin: CGO required for CoreBluetooth BLE
+  # darwin: CGO required for CoreBluetooth BLE.
+  # post hook ad-hoc codesigns the binary so macOS TCC reads the embedded
+  # Info.plist (NSBluetoothAlwaysUsageDescription) — without a code identity
+  # CoreBluetooth aborts the process on first use.
   - id: bdpeer-darwin
     main: ./cmd/bdpeer
     binary: bdpeer
@@ -20,6 +23,9 @@ builds:
       - amd64
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    hooks:
+      post:
+        - cmd: codesign --force --sign - --timestamp=none "{{ .Path }}"
 
   # linux + windows: tinygo BLE scan via pure Go (no CGO needed)
   - id: bdpeer-other

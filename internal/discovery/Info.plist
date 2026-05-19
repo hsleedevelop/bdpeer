@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.hsleedevelop.bdpeer</string>
+	<key>CFBundleName</key>
+	<string>bdpeer</string>
+	<key>CFBundleExecutable</key>
+	<string>bdpeer</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>bdpeer는 근거리 피어 발견과 연결에 Bluetooth를 사용합니다.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>bdpeer는 자신을 주변 기기에 광고하기 위해 Bluetooth를 사용합니다.</string>
+</dict>
+</plist>

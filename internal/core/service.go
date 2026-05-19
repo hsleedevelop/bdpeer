@@ -396,7 +396,7 @@ func (s *Service) ConnectByNickname(ctx context.Context, nickname string) error 
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {
-	peerKey := transport.PeerID(string(req.To))
+	peerKey := transport.PeerID(req.To.String())
 	t, ok := s.registry.Lookup(peerKey)
 	if !ok {
 		return fmt.Errorf("unknown peer: %s", peerKey)

@@ -41,7 +41,7 @@
 # 압축 해제
 tar -xzf bdpeer_*_darwin_*.tar.gz
 
-# Gatekeeper 차단 해제 (미서명 바이너리)
+# Gatekeeper 차단 해제 (Developer ID 미서명)
 xattr -d com.apple.quarantine bdpeer
 
 # 실행
@@ -49,6 +49,7 @@ xattr -d com.apple.quarantine bdpeer
 ```
 
 > 시스템 환경설정 → 개인 정보 보호 및 보안에서 "어쨌든 허용"을 눌러도 됩니다.
+> 최초 실행 시 Bluetooth 권한 요청 다이얼로그가 표시됩니다 — 근거리 피어 발견(BLE)에 사용되며 허용해야 BLE 경로가 동작합니다.
 
 ### Linux
 
