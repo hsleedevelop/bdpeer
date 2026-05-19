@@ -147,6 +147,11 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     if ([characteristic.UUID isEqual:sdpUUID()] ||
         [characteristic.UUID isEqual:dataUUID()]) {
         [_subscribedCentrals removeObject:central];
+        // Drop any partial chunk-reassembly state for this central so a future
+        // reconnect cannot inherit stale bytes mid-message.
+        NSString *uuid = central.identifier.UUIDString;
+        [_centralSDPBufs  removeObjectForKey:uuid];
+        [_centralDataBufs removeObjectForKey:uuid];
     }
 }
 
@@ -248,6 +253,16 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     [_peripherals removeObjectForKey:p.identifier];
 }
 
+// Peripheral disconnected (out of range, BLE drop, peer app exit, etc.).
+// Drop reassembly state so a future reconnect starts clean — otherwise any
+// partial message buffered here corrupts the next message under the same key.
+- (void)centralManager:(CBCentralManager *)cm didDisconnectPeripheral:(CBPeripheral *)p error:(NSError *)e {
+    NSString *uuid = p.identifier.UUIDString;
+    [_peripheralSDPBufs  removeObjectForKey:uuid];
+    [_peripheralDataBufs removeObjectForKey:uuid];
+    [_peripherals        removeObjectForKey:p.identifier];
+}
+
 - (void)peripheral:(CBPeripheral *)p didDiscoverServices:(NSError *)e {
     if (e) return;
     for (CBService *s in p.services)
@@ -318,8 +333,18 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     char     type  = (char)b[0];
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
+    if (total == 0) return;
 
-    if (!bufs[key]) bufs[key] = [NSMutableData new];
+    // idx==0 is the canonical "new message starts" signal — always reset the
+    // buffer so a previous interrupted/dropped message cannot leak stale bytes
+    // into the new one. Without this, a BLE disconnect mid-message corrupts
+    // every subsequent message reassembled under the same key.
+    if (idx == 0) {
+        bufs[key] = [NSMutableData new];
+    } else if (!bufs[key]) {
+        // Mid-message chunk arrived without a prior idx==0 — drop it.
+        return;
+    }
     [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];
 
     if (idx == total - 1) {
@@ -338,9 +363,14 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
     if (total == 0) return;
-    if (idx != 0 && !bufs[key]) return;
 
-    if (!bufs[key]) bufs[key] = [NSMutableData new];
+    // See handleChunk: idx==0 must reset the buffer to prevent stale bytes
+    // from a previously interrupted message corrupting the next one.
+    if (idx == 0) {
+        bufs[key] = [NSMutableData new];
+    } else if (!bufs[key]) {
+        return;
+    }
     [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];
 
     if (idx == total - 1) {
