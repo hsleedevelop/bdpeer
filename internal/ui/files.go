@@ -1,10 +1,28 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
+
+// truncateForWidth shrinks s with an ellipsis when its rune count exceeds max.
+// Approximates display width using rune count — adequate for the file panel.
+func truncateForWidth(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	return "…" + string(runes[len(runes)-(max-1):])
+}
 
 type fileEntry struct {
 	Name  string
@@ -58,15 +76,21 @@ func fileTreeView(m Model, width, height int) string {
 		return confirmDialog(m, width, height)
 	}
 
-	cwd := m.fileCwd
-	if len(cwd) > width-4 {
-		cwd = "..." + cwd[len(cwd)-(width-7):]
-	}
+	cwd := truncateForWidth(m.fileCwd, width-4)
 	pathLine := StyleHelp.Render(cwd)
 
-	listHeight := height - 5
+	// Reserve rows for: border(2) + header(1) + pathLine(1) + helpLine(1) + scrollLine(1)
+	listHeight := height - 6
 	if listHeight < 1 {
 		listHeight = 1
+	}
+
+	// Clamp fileIdx so renders stay within entries even after dir changes.
+	if m.fileIdx >= len(m.fileEntries) {
+		m.fileIdx = len(m.fileEntries) - 1
+	}
+	if m.fileIdx < 0 {
+		m.fileIdx = 0
 	}
 
 	start := 0
@@ -78,6 +102,13 @@ func fileTreeView(m Model, width, height int) string {
 		end = len(m.fileEntries)
 	}
 
+	// Filenames may exceed width — truncate so lipgloss does not wrap and
+	// extend the panel vertically. Two chars are reserved for the "▸ " prefix.
+	nameMax := width - 4
+	if nameMax < 4 {
+		nameMax = 4
+	}
+
 	var lines []string
 	for i := start; i < end; i++ {
 		e := m.fileEntries[i]
@@ -85,23 +116,42 @@ func fileTreeView(m Model, width, height int) string {
 		if e.IsDir {
 			name = name + "/"
 		}
+		name = truncateForWidth(name, nameMax)
 		if i == m.fileIdx && m.focus == focusFiles {
 			lines = append(lines, StyleMessageMine.Render("▸ "+name))
 		} else {
 			lines = append(lines, StyleMessage.Render("  "+name))
 		}
 	}
+	// Pad to listHeight so the panel keeps a stable size on short dirs.
+	for len(lines) < listHeight {
+		lines = append(lines, "")
+	}
+
+	scroll := ""
+	if len(m.fileEntries) > 0 {
+		scroll = fmt.Sprintf("%d/%d", m.fileIdx+1, len(m.fileEntries))
+		if end < len(m.fileEntries) {
+			scroll += " ↓"
+		}
+		if start > 0 {
+			scroll = "↑ " + scroll
+		}
+	}
+	scrollLine := StyleHelp.Render(scroll)
 
 	help := "→ 포커스  ↑/↓ 이동  Enter 선택"
 	if m.focus == focusFiles {
-		help = "← 피어로  ↑/↓ 이동  Enter 진입/전송"
+		help = "← 채팅으로  ↑/↓ 이동  Enter 진입/전송"
 	}
 	helpLine := StyleHelp.Render(help)
 
-	body := header + "\n" + pathLine + "\n" + strings.Join(lines, "\n") + "\n" + helpLine
-	return StylePanel.Width(width).Height(height).Render(body)
+	body := header + "\n" + pathLine + "\n" + strings.Join(lines, "\n") + "\n" + scrollLine + "\n" + helpLine
+	return panelStyle(m.focus == focusFiles).Width(width).Height(height).Render(body)
 }
 
+// confirmDialog renders the file-send confirmation prompt. Because it is
+// triggered from the file panel, treat it as the focused area.
 func confirmDialog(m Model, width, height int) string {
 	header := StyleTitle.Render("파일 전송")
 	target := "(피어 미선택)"
@@ -114,5 +164,5 @@ func confirmDialog(m Model, width, height int) string {
 		StyleMessage.Render("File: ") + name + "\n\n" +
 		StyleHelp.Render("전송하시겠습니까?") + "\n" +
 		StyleMessageMine.Render("  [Y] 예    [N] 아니오")
-	return StylePanel.Width(width).Height(height).Render(body)
+	return StylePanelActive.Width(width).Height(height).Render(body)
 }

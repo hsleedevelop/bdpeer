@@ -11,7 +11,8 @@ import (
 )
 
 // WriteFile sends FILE_START, FILE_CHUNK..., FILE_END frames to w.
-func WriteFile(srcPath, from string, w io.Writer) error {
+// progress, if non-nil, is invoked after each chunk with (sentBytes, totalBytes).
+func WriteFile(srcPath, from string, w io.Writer, progress func(int64, int64)) error {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return err
@@ -22,12 +23,13 @@ func WriteFile(srcPath, from string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	total := info.Size()
 
 	if err := WriteFrame(w, proto.Frame{
 		Type: proto.FrameFileStart,
 		From: from,
 		Name: filepath.Base(srcPath),
-		Size: info.Size(),
+		Size: total,
 	}); err != nil {
 		return err
 	}
@@ -35,6 +37,7 @@ func WriteFile(srcPath, from string, w io.Writer) error {
 	h := sha256.New()
 	buf := make([]byte, proto.ChunkSize)
 	seq := 0
+	var sent int64
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
@@ -49,6 +52,10 @@ func WriteFile(srcPath, from string, w io.Writer) error {
 				return err
 			}
 			seq++
+			sent += int64(n)
+			if progress != nil {
+				progress(sent, total)
+			}
 		}
 		if err == io.EOF {
 			break

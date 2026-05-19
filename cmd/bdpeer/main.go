@@ -163,11 +163,11 @@ func forwardCoreEvents(events <-chan core.Event, prog *tea.Program) {
 		case core.EventTextReceived:
 			prog.Send(ui.MsgTextReceived{From: ev.From, Content: ev.Content})
 		case core.EventFileStart:
-			prog.Send(ui.MsgFileStart{From: ev.From, Name: ev.Name, Size: ev.Size})
+			prog.Send(ui.MsgFileStart{From: ev.From, Name: ev.Name, Size: ev.Size, Outgoing: ev.Outgoing})
 		case core.EventFileProgress:
-			prog.Send(ui.MsgFileProgress{From: ev.From, Received: ev.Received, Total: ev.Total})
+			prog.Send(ui.MsgFileProgress{From: ev.From, Received: ev.Received, Total: ev.Total, Outgoing: ev.Outgoing})
 		case core.EventFileDone:
-			prog.Send(ui.MsgFileDone{From: ev.From, Name: ev.Name, SavePath: ev.Path})
+			prog.Send(ui.MsgFileDone{From: ev.From, Name: ev.Name, SavePath: ev.Path, Outgoing: ev.Outgoing})
 		case core.EventError:
 			prog.Send(ui.MsgError{Err: ev.Err})
 		case core.EventReady:

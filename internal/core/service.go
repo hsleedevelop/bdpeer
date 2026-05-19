@@ -49,6 +49,7 @@ type Event struct {
 	Path      string
 	Err       error
 	LocalAddr string
+	Outgoing  bool
 }
 
 type SendRequest struct {
@@ -326,13 +327,29 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 	defer stream.Close()
 
 	if req.File != "" {
+		info, statErr := os.Stat(req.File)
+		if statErr != nil {
+			return statErr
+		}
+		name := filepath.Base(req.File)
+		total := info.Size()
+		s.events <- Event{Type: EventFileStart, From: s.cfg.Nickname, Name: name, Size: total, Outgoing: true}
+
 		pr, pw := io.Pipe()
 		go func() {
-			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw)
+			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw, func(sent, tot int64) {
+				select {
+				case s.events <- Event{Type: EventFileProgress, From: s.cfg.Nickname, Name: name, Received: sent, Total: tot, Outgoing: true}:
+				default:
+				}
+			})
 			pw.CloseWithError(err)
 		}()
-		_, err = io.Copy(stream, pr)
-		return err
+		if _, err := io.Copy(stream, pr); err != nil {
+			return err
+		}
+		s.events <- Event{Type: EventFileDone, From: s.cfg.Nickname, Name: name, Outgoing: true}
+		return nil
 	}
 
 	return transfer.WriteFrame(stream, proto.Frame{

@@ -34,12 +34,17 @@ type MsgTextReceived struct{ From, Content string }
 type MsgFileStart struct {
 	From, Name string
 	Size       int64
+	Outgoing   bool
 }
 type MsgFileProgress struct {
 	From            string
 	Received, Total int64
+	Outgoing        bool
 }
-type MsgFileDone struct{ From, Name, SavePath string }
+type MsgFileDone struct {
+	From, Name, SavePath string
+	Outgoing             bool
+}
 type MsgError struct{ Err error }
 type MsgLocalAddr struct{ Addr string }
 type MsgLog struct{ Text string }
@@ -57,6 +62,7 @@ type fileXfer struct {
 	Total    int64
 	Done     bool
 	SavePath string
+	Outgoing bool
 }
 
 type Model struct {
@@ -126,15 +132,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MsgTextReceived:
 		m.messages = append(m.messages, Message{From: msg.From, Content: msg.Content})
 	case MsgFileStart:
-		m.fileXfer = &fileXfer{From: msg.From, Name: msg.Name, Total: msg.Size}
+		m.fileXfer = &fileXfer{From: msg.From, Name: msg.Name, Total: msg.Size, Outgoing: msg.Outgoing}
 	case MsgFileProgress:
 		if m.fileXfer != nil {
 			m.fileXfer.Received = msg.Received
+			m.fileXfer.Outgoing = msg.Outgoing
 		}
 	case MsgFileDone:
 		if m.fileXfer != nil {
 			m.fileXfer.Done = true
 			m.fileXfer.SavePath = msg.SavePath
+			m.fileXfer.Outgoing = msg.Outgoing
 		}
 	case MsgError:
 		m.err = msg.Err
@@ -255,15 +263,11 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		return m, tea.Quit
 	case tea.KeyRight:
-		if m.inputBuf == "" {
-			m.focus = focusFiles
-			return m, nil
-		}
+		m.focus = focusFiles
+		return m, nil
 	case tea.KeyLeft:
-		if m.inputBuf == "" {
-			m.focus = focusPeers
-			return m, nil
-		}
+		m.focus = focusPeers
+		return m, nil
 	case tea.KeyTab:
 		m.showLog = !m.showLog
 		return m, nil
@@ -301,11 +305,23 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.activePeer == nil {
 			m.logs = append(m.logs, "전송 불가: 활성 피어 없음")
+			m.messages = append(m.messages, Message{From: "system", Content: "전송 불가: 활성 피어 없음"})
 			m.inputBuf = ""
 			return m, nil
 		}
+		// Re-resolve activePeer against m.peers so that newly-discovered IDs
+		// (e.g. DHT resolves nickname after BLE/SSDP) are picked up before send.
+		for _, p := range m.peers {
+			if samePeer(p, *m.activePeer) {
+				fresh := p
+				m.activePeer = &fresh
+				break
+			}
+		}
 		if m.activePeer.ID == "" {
-			m.logs = append(m.logs, "전송 불가: '"+m.activePeer.Nickname+"' 의 ID 미확정 (libp2p 연결 전) — /connect 로 직접 연결 시도")
+			warn := "전송 불가: '" + m.activePeer.Nickname + "' 의 ID 미확정 — 잠시 후 다시 시도하거나 /connect 사용"
+			m.logs = append(m.logs, warn)
+			m.messages = append(m.messages, Message{From: "system", Content: warn})
 			m.inputBuf = ""
 			return m, nil
 		}

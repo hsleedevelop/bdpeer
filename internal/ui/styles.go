@@ -2,6 +2,15 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
+// panelStyle returns the bordered panel style with the active highlight when
+// focused matches the current focus area.
+func panelStyle(active bool) lipgloss.Style {
+	if active {
+		return StylePanelActive
+	}
+	return StylePanel
+}
+
 var (
 	colorBase    = lipgloss.Color("#2E3440")
 	colorSurface = lipgloss.Color("#3B4252")
@@ -20,6 +29,10 @@ var (
 	StylePanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorMuted)
+
+	StylePanelActive = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(colorPrimary)
 
 	StylePeerOnline = lipgloss.NewStyle().
 			Foreground(colorGreen)
