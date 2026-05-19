@@ -24,7 +24,24 @@ type WebRTCConn struct {
 	connectedCh chan struct{}
 	dcReadyCh   chan struct{}
 	OnClose     func()
+
+	// Outbound back-pressure. pion's DataChannel.Send queues into the SCTP
+	// outbound buffer and returns nil immediately — without flow control a
+	// fast sender like io.Copy will fill the buffer (or, with TURN relays,
+	// outpace the relay) and Write returns success while bytes are still
+	// in flight or have been dropped. drainCh is closed-and-replaced from
+	// OnBufferedAmountLow; Write waits on it when BufferedAmount climbs above
+	// writeHighWatermark.
+	bufMu   sync.Mutex
+	drainCh chan struct{}
+	closeCh chan struct{}
+	closeOnce sync.Once
 }
+
+const (
+	writeHighWatermark = 1 << 20 // 1 MiB — pause Write above this
+	writeLowWatermark  = 256 << 10 // 256 KiB — resume Write when drained below this
+)
 
 // newWebRTCConfig builds a WebRTC configuration with STUN + TURN servers.
 // turnServers come from config — custom servers override the built-in Open Relay defaults.
@@ -52,6 +69,8 @@ func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
 		pw:          pw,
 		connectedCh: make(chan struct{}),
 		dcReadyCh:   make(chan struct{}),
+		drainCh:     make(chan struct{}),
+		closeCh:     make(chan struct{}),
 	}
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		switch s {
@@ -61,6 +80,7 @@ func newWebRTCConn(pc *webrtc.PeerConnection) *WebRTCConn {
 			webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateClosed:
 			pw.CloseWithError(io.ErrClosedPipe)
+			c.closeOnce.Do(func() { close(c.closeCh) })
 			if c.OnClose != nil {
 				go c.OnClose()
 			}
@@ -91,6 +111,14 @@ func waitForICEGathering(ctx context.Context, pc *webrtc.PeerConnection) (string
 
 func (c *WebRTCConn) wireDataChannel(dc *webrtc.DataChannel) {
 	c.dc = dc
+	dc.SetBufferedAmountLowThreshold(writeLowWatermark)
+	dc.OnBufferedAmountLow(func() {
+		c.bufMu.Lock()
+		ch := c.drainCh
+		c.drainCh = make(chan struct{})
+		c.bufMu.Unlock()
+		close(ch)
+	})
 	dc.OnOpen(func() {
 		c.dcOnce.Do(func() { close(c.dcReadyCh) })
 	})
@@ -206,6 +234,20 @@ func (c *WebRTCConn) Write(p []byte) (int, error) {
 	if c.dc == nil {
 		return 0, fmt.Errorf("data channel not ready")
 	}
+	// Back-pressure: if pion has more than writeHighWatermark buffered, wait
+	// for OnBufferedAmountLow before queuing more. Without this, dc.Send keeps
+	// accepting bytes well past what the network can actually deliver and the
+	// receiver appears to stall mid-transfer.
+	for c.dc.BufferedAmount() > writeHighWatermark {
+		c.bufMu.Lock()
+		ch := c.drainCh
+		c.bufMu.Unlock()
+		select {
+		case <-ch:
+		case <-c.closeCh:
+			return 0, io.ErrClosedPipe
+		}
+	}
 	if err := c.dc.Send(p); err != nil {
 		return 0, err
 	}
@@ -214,5 +256,6 @@ func (c *WebRTCConn) Write(p []byte) (int, error) {
 
 func (c *WebRTCConn) Close() error {
 	c.pw.CloseWithError(io.ErrClosedPipe)
+	c.closeOnce.Do(func() { close(c.closeCh) })
 	return c.pc.Close()
 }

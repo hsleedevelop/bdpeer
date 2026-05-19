@@ -5,23 +5,37 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
+
+	runewidth "github.com/mattn/go-runewidth"
 )
 
-// truncateForWidth shrinks s with an ellipsis when its rune count exceeds max.
-// Approximates display width using rune count — adequate for the file panel.
+// truncateForWidth shrinks s with an ellipsis when its display width (terminal
+// cells) exceeds max. Korean/CJK runes occupy 2 cells each, so rune counting
+// would under-estimate and let names wrap, which breaks the panel layout.
 func truncateForWidth(s string, max int) string {
 	if max <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= max {
+	if runewidth.StringWidth(s) <= max {
 		return s
 	}
 	if max <= 1 {
 		return "…"
 	}
+	// Keep the tail; ellipsis is 1 cell wide.
+	budget := max - 1
 	runes := []rune(s)
-	return "…" + string(runes[len(runes)-(max-1):])
+	width := 0
+	cut := len(runes)
+	for i := len(runes) - 1; i >= 0; i-- {
+		w := runewidth.RuneWidth(runes[i])
+		if width+w > budget {
+			break
+		}
+		width += w
+		cut = i
+	}
+	return "…" + string(runes[cut:])
 }
 
 type fileEntry struct {
@@ -138,13 +152,13 @@ func fileTreeView(m Model, width, height int) string {
 			scroll = "↑ " + scroll
 		}
 	}
-	scrollLine := StyleHelp.Render(scroll)
+	scrollLine := StyleHelp.Render(truncateForWidth(scroll, width-2))
 
-	help := "→ 포커스  ↑/↓ 이동  Enter 선택"
+	help := "→포커스 ↑↓이동 Enter선택"
 	if m.focus == focusFiles {
-		help = "← 채팅으로  ↑/↓ 이동  Enter 진입/전송"
+		help = "←채팅 ↑↓이동 Enter"
 	}
-	helpLine := StyleHelp.Render(help)
+	helpLine := StyleHelp.Render(truncateForWidth(help, width-2))
 
 	body := header + "\n" + pathLine + "\n" + strings.Join(lines, "\n") + "\n" + scrollLine + "\n" + helpLine
 	return panelStyle(m.focus == focusFiles).Width(width).Height(height).Render(body)

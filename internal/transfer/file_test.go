@@ -19,7 +19,7 @@ func TestFileSendReceive(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := transfer.WriteFile(srcPath, "alice", &buf, nil); err != nil {
+	if err := transfer.WriteFile(srcPath, "alice", "tid-test", &buf, nil); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

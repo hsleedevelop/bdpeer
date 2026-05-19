@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -70,6 +73,13 @@ type Service struct {
 	webrtcT  *transport.WebRTCTransport
 	bleT     *transport.BLETransport
 	mgr      *discovery.Manager
+
+	acksMu sync.Mutex
+	acks   map[string]chan ackResult
+}
+
+type ackResult struct {
+	err error
 }
 
 func NewService(cfg *config.Config, cfgPath string) *Service {
@@ -80,7 +90,48 @@ func NewService(cfg *config.Config, cfgPath string) *Service {
 		registry: transport.NewRegistry(),
 		webrtcT:  transport.NewWebRTCTransport(),
 		bleT:     transport.NewBLETransport(),
+		acks:     make(map[string]chan ackResult),
 	}
+}
+
+func newTransferID() string {
+	var b [12]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+func (s *Service) registerAck(id string) chan ackResult {
+	ch := make(chan ackResult, 1)
+	s.acksMu.Lock()
+	s.acks[id] = ch
+	s.acksMu.Unlock()
+	return ch
+}
+
+func (s *Service) deliverAck(id string, errMsg string) {
+	s.acksMu.Lock()
+	ch, ok := s.acks[id]
+	if ok {
+		delete(s.acks, id)
+	}
+	s.acksMu.Unlock()
+	if !ok {
+		return
+	}
+	var err error
+	if errMsg != "" {
+		err = errors.New(errMsg)
+	}
+	select {
+	case ch <- ackResult{err: err}:
+	default:
+	}
+}
+
+func (s *Service) dropAck(id string) {
+	s.acksMu.Lock()
+	delete(s.acks, id)
+	s.acksMu.Unlock()
 }
 
 func (s *Service) Events() <-chan Event { return s.events }
@@ -280,13 +331,47 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 			savePath, err := transfer.ReadFile(combined, s.recvDir, func(recv, total int64) {
 				s.events <- Event{Type: EventFileProgress, From: frame.From, Received: recv, Total: total}
 			})
+			ackErr := ""
 			if err != nil {
+				ackErr = err.Error()
 				s.events <- Event{Type: EventError, Err: err}
+			} else {
+				s.events <- Event{Type: EventFileDone, From: frame.From, Name: frame.Name, Path: savePath}
+			}
+			if frame.TransferID != "" {
+				go s.sendFileAck(from, frame.TransferID, ackErr)
+			}
+			if err != nil {
 				return
 			}
-			s.events <- Event{Type: EventFileDone, From: frame.From, Name: frame.Name, Path: savePath}
+
+		case proto.FrameFileAck:
+			s.deliverAck(frame.TransferID, frame.AckErr)
 		}
 	}
+}
+
+// sendFileAck writes a FILE_ACK frame back to the sender of a completed (or
+// failed) inbound transfer. Uses a short-lived stream — failures are logged
+// but not surfaced to the user, since the sender will hit its own ACK timeout.
+func (s *Service) sendFileAck(from transport.PeerID, transferID, errMsg string) {
+	t, ok := s.registry.Lookup(from)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := t.OpenStream(ctx, from)
+	if err != nil {
+		return
+	}
+	defer stream.Close()
+	_ = transfer.WriteFrame(stream, proto.Frame{
+		Type:       proto.FrameFileAck,
+		From:       s.cfg.Nickname,
+		TransferID: transferID,
+		AckErr:     errMsg,
+	})
 }
 
 func (s *Service) Connect(ctx context.Context, addr string) error {
@@ -335,9 +420,12 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 		total := info.Size()
 		s.events <- Event{Type: EventFileStart, From: s.cfg.Nickname, Name: name, Size: total, Outgoing: true}
 
+		transferID := newTransferID()
+		ackCh := s.registerAck(transferID)
+
 		pr, pw := io.Pipe()
 		go func() {
-			err := transfer.WriteFile(req.File, s.cfg.Nickname, pw, func(sent, tot int64) {
+			err := transfer.WriteFile(req.File, s.cfg.Nickname, transferID, pw, func(sent, tot int64) {
 				select {
 				case s.events <- Event{Type: EventFileProgress, From: s.cfg.Nickname, Name: name, Received: sent, Total: tot, Outgoing: true}:
 				default:
@@ -346,9 +434,34 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 			pw.CloseWithError(err)
 		}()
 		if _, err := io.Copy(stream, pr); err != nil {
+			s.dropAck(transferID)
 			return err
 		}
-		s.events <- Event{Type: EventFileDone, From: s.cfg.Nickname, Name: name, Outgoing: true}
+		// Release the outbound stream so the responder can dial back with the
+		// FILE_ACK over its own inbound stream.
+		stream.Close()
+		// Wait for receiver ACK so EventFileDone reflects receiver state, not
+		// the local SCTP/BLE send buffer state.
+		// Allow ~10 KiB/s effective throughput plus a 60s grace — BLE-only
+		// transfers are throttled by the 10ms inter-chunk sleep in CoreBluetooth
+		// (sendDataToPeripheral) and can be noticeably slower than WebRTC.
+		ackTimeout := time.Duration(total/(10*1024)+60) * time.Second
+		select {
+		case res := <-ackCh:
+			if res.err != nil {
+				s.events <- Event{Type: EventError, Err: fmt.Errorf("receiver ack: %w", res.err)}
+				return res.err
+			}
+			s.events <- Event{Type: EventFileDone, From: s.cfg.Nickname, Name: name, Outgoing: true}
+		case <-ctx.Done():
+			s.dropAck(transferID)
+			return ctx.Err()
+		case <-time.After(ackTimeout):
+			s.dropAck(transferID)
+			err := fmt.Errorf("file ack timeout after %s", ackTimeout)
+			s.events <- Event{Type: EventError, Err: err}
+			return err
+		}
 		return nil
 	}
 

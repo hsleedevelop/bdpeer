@@ -12,7 +12,8 @@ import (
 
 // WriteFile sends FILE_START, FILE_CHUNK..., FILE_END frames to w.
 // progress, if non-nil, is invoked after each chunk with (sentBytes, totalBytes).
-func WriteFile(srcPath, from string, w io.Writer, progress func(int64, int64)) error {
+// transferID is echoed in FILE_START so the receiver can ACK against the same id.
+func WriteFile(srcPath, from, transferID string, w io.Writer, progress func(int64, int64)) error {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return err
@@ -26,10 +27,11 @@ func WriteFile(srcPath, from string, w io.Writer, progress func(int64, int64)) e
 	total := info.Size()
 
 	if err := WriteFrame(w, proto.Frame{
-		Type: proto.FrameFileStart,
-		From: from,
-		Name: filepath.Base(srcPath),
-		Size: total,
+		Type:       proto.FrameFileStart,
+		From:       from,
+		Name:       filepath.Base(srcPath),
+		Size:       total,
+		TransferID: transferID,
 	}); err != nil {
 		return err
 	}

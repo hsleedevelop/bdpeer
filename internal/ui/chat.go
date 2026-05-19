@@ -80,8 +80,17 @@ func chatView(m Model, width, height int) string {
 		}
 		if !m.fileXfer.Done {
 			bar, pct := progressBar(m.fileXfer.Received, m.fileXfer.Total, barW)
-			xfer = StyleHelp.Render(fmt.Sprintf("%s %s", verb, m.fileXfer.Name)) + "\n" +
-				StyleMessageMine.Render(bar) + StyleHelp.Render(fmt.Sprintf(" %d%%", pct)) + "\n"
+			// On the sender side `Received` tracks bytes written into the
+			// transport buffer, not bytes the peer has actually consumed.
+			// Once we've flushed everything, swap the bar for a "waiting on
+			// receiver" hint so the sender doesn't confuse buffer-flush with
+			// delivery — Done still requires the FILE_ACK round-trip.
+			if m.fileXfer.Outgoing && m.fileXfer.Total > 0 && m.fileXfer.Received >= m.fileXfer.Total {
+				xfer = StyleHelp.Render(fmt.Sprintf("✓ %s 송출 완료 · 수신 대기 중...", m.fileXfer.Name)) + "\n"
+			} else {
+				xfer = StyleHelp.Render(fmt.Sprintf("%s %s", verb, m.fileXfer.Name)) + "\n" +
+					StyleMessageMine.Render(bar) + StyleHelp.Render(fmt.Sprintf(" %d%%", pct)) + "\n"
+			}
 		} else {
 			if m.fileXfer.Outgoing {
 				xfer = StyleHelp.Render(fmt.Sprintf("✓ %s 전송 완료", m.fileXfer.Name)) + "\n"

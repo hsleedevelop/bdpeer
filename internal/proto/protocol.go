@@ -10,16 +10,19 @@ const (
 	FrameFileStart FrameType = "file_start"
 	FrameFileChunk FrameType = "file_chunk"
 	FrameFileEnd   FrameType = "file_end"
+	FrameFileAck   FrameType = "file_ack"
 	FrameHello     FrameType = "hello"
 )
 
 type Frame struct {
-	Type     FrameType `json:"type"`
-	From     string    `json:"from"`
-	Content  string    `json:"content,omitempty"`
-	Name     string    `json:"name,omitempty"`
-	Size     int64     `json:"size,omitempty"`
-	Seq      int       `json:"seq,omitempty"`
-	Data     []byte    `json:"data,omitempty"`
-	Checksum string    `json:"checksum,omitempty"`
+	Type       FrameType `json:"type"`
+	From       string    `json:"from"`
+	Content    string    `json:"content,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	Size       int64     `json:"size,omitempty"`
+	Seq        int       `json:"seq,omitempty"`
+	Data       []byte    `json:"data,omitempty"`
+	Checksum   string    `json:"checksum,omitempty"`
+	TransferID string    `json:"tid,omitempty"`
+	AckErr     string    `json:"ack_err,omitempty"`
 }
