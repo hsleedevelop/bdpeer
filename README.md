@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.6
+VERSION=0.5.7
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
