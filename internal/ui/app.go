@@ -83,11 +83,13 @@ type Model struct {
 	nickCh     chan<- string
 	connectCh  chan<- string
 
-	focus       focusArea
-	fileCwd     string
-	fileEntries []fileEntry
-	fileIdx     int
-	confirmPath string
+	focus         focusArea
+	fileCwd       string
+	fileEntries   []fileEntry
+	fileIdx       int
+	fileFilter    string
+	fileFiltering bool
+	confirmPath   string
 
 	// Hangul IME fires 2-3 key events per syllable. Re-rendering all three
 	// panels through lipgloss on every keystroke is the dominant cost; cache
@@ -422,8 +424,41 @@ func (m Model) handlePeersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileFiltering {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.fileFiltering = false
+			m.fileFilter = ""
+			m.fileIdx = 0
+			return m, nil
+		case tea.KeyEnter:
+			m.fileFiltering = false
+			return m, nil
+		case tea.KeyBackspace:
+			if r := []rune(m.fileFilter); len(r) > 0 {
+				m.fileFilter = string(r[:len(r)-1])
+				m.fileIdx = 0
+			}
+			return m, nil
+		case tea.KeySpace:
+			m.fileFilter += " "
+			m.fileIdx = 0
+			return m, nil
+		case tea.KeyRunes:
+			m.fileFilter += string(msg.Runes)
+			m.fileIdx = 0
+			return m, nil
+		}
+		return m, nil
+	}
+
 	if msg.Type == tea.KeyRunes {
 		switch msg.String() {
+		case "/":
+			m.fileFiltering = true
+			m.fileFilter = ""
+			m.fileIdx = 0
+			return m, nil
 		case "1":
 			m.focus = focusPeers
 			return m, nil
@@ -432,8 +467,14 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	vis := visibleFileEntries(m.fileEntries, m.fileFilter)
 	switch msg.Type {
 	case tea.KeyEsc:
+		if m.fileFilter != "" {
+			m.fileFilter = ""
+			m.fileIdx = 0
+			return m, nil
+		}
 		return m, tea.Quit
 	case tea.KeyLeft:
 		m.focus = focusChat
@@ -443,14 +484,14 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fileIdx--
 		}
 	case tea.KeyDown:
-		if m.fileIdx < len(m.fileEntries)-1 {
+		if m.fileIdx < len(vis)-1 {
 			m.fileIdx++
 		}
 	case tea.KeyEnter:
-		if m.fileIdx < 0 || m.fileIdx >= len(m.fileEntries) {
+		if m.fileIdx < 0 || m.fileIdx >= len(vis) {
 			return m, nil
 		}
-		e := m.fileEntries[m.fileIdx]
+		e := vis[m.fileIdx]
 		full := filepath.Join(m.fileCwd, e.Name)
 		if e.IsDir {
 			if e.Name == ".." {
@@ -459,6 +500,8 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fileCwd = full
 			m.fileEntries = readDir(full)
 			m.fileIdx = 0
+			m.fileFilter = ""
+			m.fileFiltering = false
 			return m, nil
 		}
 		if m.activePeer == nil {
@@ -589,7 +632,7 @@ func (m Model) cachedFilesView(w, h int) string {
 		return fileTreeView(m, w, h)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%dx%d|f=%v|cwd=%s|i=%d|n=%d", w, h, m.focus == focusFiles, m.fileCwd, m.fileIdx, len(m.fileEntries))
+	fmt.Fprintf(&b, "%dx%d|f=%v|cwd=%s|i=%d|n=%d|q=%s|qe=%v", w, h, m.focus == focusFiles, m.fileCwd, m.fileIdx, len(m.fileEntries), m.fileFilter, m.fileFiltering)
 	for _, e := range m.fileEntries {
 		b.WriteByte('|')
 		b.WriteString(e.Name)

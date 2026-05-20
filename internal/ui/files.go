@@ -58,6 +58,26 @@ func focusBar(f focusArea) string {
 	return p + " " + c + " " + fi
 }
 
+// visibleFileEntries returns entries matching the case-insensitive substring
+// filter. ".." is always kept so users can navigate out even while filtering.
+func visibleFileEntries(entries []fileEntry, filter string) []fileEntry {
+	if filter == "" {
+		return entries
+	}
+	q := strings.ToLower(filter)
+	out := make([]fileEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.Name == ".." {
+			out = append(out, e)
+			continue
+		}
+		if strings.Contains(strings.ToLower(e.Name), q) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func readDir(path string) []fileEntry {
 	var out []fileEntry
 	if parent := filepath.Dir(path); parent != path {
@@ -93,15 +113,17 @@ func fileTreeView(m Model, width, height int) string {
 	cwd := truncateForWidth(m.fileCwd, width-4)
 	pathLine := StyleHelp.Render(cwd)
 
-	// Reserve rows for: border(2) + header(1) + pathLine(1) + helpLine(1) + scrollLine(1)
-	listHeight := height - 6
+	entries := visibleFileEntries(m.fileEntries, m.fileFilter)
+
+	// Reserve rows for: border(2) + header(1) + pathLine(1) + filterLine(1) + helpLine(1) + scrollLine(1)
+	listHeight := height - 7
 	if listHeight < 1 {
 		listHeight = 1
 	}
 
-	// Clamp fileIdx so renders stay within entries even after dir changes.
-	if m.fileIdx >= len(m.fileEntries) {
-		m.fileIdx = len(m.fileEntries) - 1
+	// Clamp fileIdx so renders stay within entries even after dir/filter changes.
+	if m.fileIdx >= len(entries) {
+		m.fileIdx = len(entries) - 1
 	}
 	if m.fileIdx < 0 {
 		m.fileIdx = 0
@@ -112,8 +134,8 @@ func fileTreeView(m Model, width, height int) string {
 		start = m.fileIdx - listHeight + 1
 	}
 	end := start + listHeight
-	if end > len(m.fileEntries) {
-		end = len(m.fileEntries)
+	if end > len(entries) {
+		end = len(entries)
 	}
 
 	// Filenames may exceed width — truncate so lipgloss does not wrap and
@@ -125,7 +147,7 @@ func fileTreeView(m Model, width, height int) string {
 
 	var lines []string
 	for i := start; i < end; i++ {
-		e := m.fileEntries[i]
+		e := entries[i]
 		name := e.Name
 		if e.IsDir {
 			name = name + "/"
@@ -143,24 +165,47 @@ func fileTreeView(m Model, width, height int) string {
 	}
 
 	scroll := ""
-	if len(m.fileEntries) > 0 {
-		scroll = fmt.Sprintf("%d/%d", m.fileIdx+1, len(m.fileEntries))
-		if end < len(m.fileEntries) {
+	if len(entries) > 0 {
+		scroll = fmt.Sprintf("%d/%d", m.fileIdx+1, len(entries))
+		if end < len(entries) {
 			scroll += " ↓"
 		}
 		if start > 0 {
 			scroll = "↑ " + scroll
 		}
 	}
+	if m.fileFilter != "" && len(entries) != len(m.fileEntries) {
+		scroll = fmt.Sprintf("%s (전체 %d)", scroll, len(m.fileEntries))
+	}
 	scrollLine := StyleHelp.Render(truncateForWidth(scroll, width-2))
 
+	filterText := ""
+	switch {
+	case m.fileFiltering:
+		filterText = "필터: " + m.fileFilter + "▏"
+	case m.fileFilter != "":
+		filterText = "필터: " + m.fileFilter
+	}
+	var filterLine string
+	if filterText != "" {
+		filterLine = StyleMessageMine.Render(truncateForWidth(filterText, width-2))
+	} else {
+		filterLine = ""
+	}
+
 	help := "→포커스 ↑↓이동 Enter선택"
-	if m.focus == focusFiles {
-		help = "←채팅 ↑↓이동 Enter"
+	switch {
+	case m.fileFiltering:
+		help = "타이핑 필터 Enter적용 Esc취소"
+	case m.focus == focusFiles:
+		help = "←채팅 ↑↓이동 Enter /필터"
+		if m.fileFilter != "" {
+			help = "←채팅 ↑↓이동 Enter /수정 Esc해제"
+		}
 	}
 	helpLine := StyleHelp.Render(truncateForWidth(help, width-2))
 
-	body := header + "\n" + pathLine + "\n" + strings.Join(lines, "\n") + "\n" + scrollLine + "\n" + helpLine
+	body := header + "\n" + pathLine + "\n" + filterLine + "\n" + strings.Join(lines, "\n") + "\n" + scrollLine + "\n" + helpLine
 	return panelStyle(m.focus == focusFiles).Width(width).Height(height).Render(body)
 }
 
