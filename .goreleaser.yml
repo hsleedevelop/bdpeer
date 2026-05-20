@@ -25,7 +25,9 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
     hooks:
       post:
-        - cmd: codesign --force --sign - --timestamp=none --options runtime --entitlements internal/discovery/entitlements.plist "{{ .Path }}"
+        # Hardened Runtime은 macOS 26 + Go cgo에서 SIGABRT를 유발하므로 사용하지 않음.
+        # ad-hoc 서명 + 임베디드 Info.plist 만으로 TCC Bluetooth 권한 통과 가능.
+        - cmd: codesign --force --sign - --timestamp=none "{{ .Path }}"
 
   # linux + windows: tinygo BLE scan via pure Go (no CGO needed)
   - id: bdpeer-other

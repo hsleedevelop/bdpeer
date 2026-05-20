@@ -4,7 +4,9 @@
 # ad-hoc codesign is required for macOS TCC to read NSBluetoothAlwaysUsageDescription
 # from the binary's embedded Info.plist (linked via -sectcreate in ble_darwin.go).
 # Without a stable code identity, CoreBluetooth crashes the process on first use.
-CODESIGN_ARGS=--force --sign - --timestamp=none --options runtime --entitlements internal/discovery/entitlements.plist
+# Hardened Runtime은 macOS 26 + Go cgo 조합에서 SIGABRT를 유발 (VM busy page enforcement).
+# ad-hoc 서명 + 임베디드 Info.plist 만으로 TCC 통과에는 충분함.
+CODESIGN_ARGS=--force --sign - --timestamp=none
 
 build:
 	CGO_ENABLED=1 go build -o dist/bdpeer ./cmd/bdpeer
