@@ -51,8 +51,8 @@ xattr -d com.apple.quarantine bdpeer 2>/dev/null
 
 # 3. 서명·entitlement 검증 (선택, 다음 3줄이 보여야 정상)
 codesign -dv --entitlements - ./bdpeer 2>&1 | grep -E "flags|Runtime|bluetooth"
-# flags=0x10002(adhoc,runtime)
-# Runtime Version=26.2.0
+# flags=0x10002(adhoc,runtime)              ← 'runtime'이 있어야 함
+# Runtime Version=<빌드 SDK 버전>            ← 값은 환경마다 다름
 # [Key] com.apple.security.device.bluetooth
 
 # 4. 실행 — 반드시 Terminal.app 또는 iTerm2에서 (cmux 등 비호환 멀티플렉서 금지)
