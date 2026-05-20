@@ -37,6 +37,8 @@
 
 ### macOS
 
+Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습니다. **반드시 자기 아키텍처에 맞는 바이너리를 사용해야 합니다** — Rosetta 2로 amd64를 실행하면 CoreBluetooth TCC 경로에서 크래시가 발생합니다.
+
 ```bash
 # 압축 해제
 tar -xzf bdpeer_*_darwin_*.tar.gz
@@ -44,12 +46,19 @@ tar -xzf bdpeer_*_darwin_*.tar.gz
 # Gatekeeper 차단 해제 (Developer ID 미서명)
 xattr -d com.apple.quarantine bdpeer
 
-# 실행
+# 실행 — 반드시 Terminal.app 또는 iTerm2에서
 ./bdpeer
 ```
 
 > 시스템 환경설정 → 개인 정보 보호 및 보안에서 "어쨌든 허용"을 눌러도 됩니다.
-> 최초 실행 시 Bluetooth 권한 요청 다이얼로그가 표시됩니다 — 근거리 피어 발견(BLE)에 사용되며 허용해야 BLE 경로가 동작합니다.
+
+#### Bluetooth 권한 (BLE 사용 시 필수)
+
+최초 실행 시 시스템에서 **"Terminal이/iTerm이 Bluetooth에 접근하려 합니다"** 다이얼로그가 뜹니다. 허용해야 근거리 피어 발견(BLE)이 동작합니다.
+
+- bdpeer는 ad-hoc 코드서명 + Hardened Runtime + `com.apple.security.device.bluetooth` entitlement로 배포되며, Info.plist에 `NSBluetoothAlwaysUsageDescription`이 임베드되어 있습니다.
+- macOS의 TCC는 child process가 아닌 **호스트 터미널 앱**의 권한을 확인합니다. cmux, tmux 일부 빌드 등 Bluetooth usage description이 없는 터미널 멀티플렉서에서 실행하면 다이얼로그가 뜨지 않고 즉시 종료됩니다. 이 경우 Terminal.app 또는 iTerm2에서 실행해 주세요.
+- 권한 다이얼로그를 거부했거나 동작이 이상하다면: 시스템 설정 → 개인 정보 보호 및 보안 → Bluetooth 에서 사용 중인 터미널 앱을 토글로 켜면 됩니다.
 
 ### Linux
 
@@ -122,6 +131,8 @@ make build-mac      # macOS arm64 + amd64 (CGO=1, BLE 포함)
 make build-win      # Windows amd64 (BLE 스캔 포함)
 make build-linux    # Linux amd64 (BLE 스캔 포함)
 ```
+
+darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명 + Hardened Runtime + Bluetooth entitlement. Apple Developer ID 인증서 없이도 동작하며, `internal/discovery/Info.plist`가 `__TEXT,__info_plist` 섹션에 임베드되어 macOS TCC가 `NSBluetoothAlwaysUsageDescription`을 읽을 수 있습니다.
 
 ## 피어 발견 프로토콜
 
