@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.7
+VERSION=0.5.8
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -94,10 +94,13 @@ make build
 
 ```bash
 ./bdpeer              # TUI 실행
+./bdpeer --debug      # 현재 디렉토리에 bdpeer-debug.log 기록
 ./bdpeer --help       # 도움말
 ./bdpeer --version    # 버전 확인
 ./bdpeer --update     # 최신 버전으로 업데이트
 ```
+
+`--debug` 모드는 현재 작업 디렉토리(`$PWD`)에 `bdpeer-debug.log` 파일을 만들고 모든 코어 이벤트(로그·피어 발견/유실·메시지·파일 전송 진행·오류)를 타임스탬프와 함께 append 합니다. TUI 종료 후에도 파일이 남아 재현/분석에 활용할 수 있습니다.
 
 첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 같은 네트워크의 피어는 즉시 발견되고, 다른 서브넷·인터넷 너머 피어는 DHT를 통해 약 10–30초 후 자동으로 나타납니다.
 

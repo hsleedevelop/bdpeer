@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hsleedevelop/bdpeer/internal/config"
@@ -13,6 +16,8 @@ import (
 	"github.com/hsleedevelop/bdpeer/internal/ui"
 	"github.com/hsleedevelop/bdpeer/internal/update"
 )
+
+var debugLogger *log.Logger
 
 // Set at build time via ldflags.
 var (
@@ -22,13 +27,24 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	args := os.Args[1:]
+	debug := false
+	filtered := args[:0]
+	for _, a := range args {
+		if a == "--debug" || a == "-d" {
+			debug = true
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+	if len(filtered) > 0 {
+		switch filtered[0] {
 		case "--help", "-h", "help":
 			fmt.Printf(`bdpeer %s — 크로스 플랫폼 P2P TUI 채팅
 
 사용법:
   bdpeer              TUI 실행
+  bdpeer --debug      현재 디렉토리에 bdpeer-debug.log 기록
   bdpeer --version    버전 확인
   bdpeer --update     최신 버전으로 자동 업데이트
   bdpeer --help       이 도움말 출력
@@ -52,6 +68,15 @@ TUI 커맨드 (입력창):
 			runUpdate()
 			return
 		}
+	}
+
+	if debug {
+		if err := initDebugLog(); err != nil {
+			fmt.Fprintln(os.Stderr, "debug log:", err)
+			os.Exit(1)
+		}
+		defer closeDebugLog()
+		debugLogger.Printf("=== bdpeer %s (%s) started ===", version, commit)
 	}
 
 	cfgPath := config.DefaultPath()
@@ -153,8 +178,62 @@ func runUpdate() {
 	fmt.Printf("%s 업데이트 완료!\n다시 실행하면 새 버전이 적용됩니다.\n", newTag)
 }
 
+var debugLogFile *os.File
+
+func initDebugLog() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(cwd, "bdpeer-debug.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	debugLogFile = f
+	debugLogger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+	fmt.Fprintf(os.Stderr, "debug 모드: %s 에 로그를 기록합니다.\n", path)
+	return nil
+}
+
+func closeDebugLog() {
+	if debugLogFile != nil {
+		debugLogger.Printf("=== bdpeer stopped (%s) ===", time.Now().Format(time.RFC3339))
+		_ = debugLogFile.Close()
+	}
+}
+
+func debugEvent(ev core.Event) {
+	if debugLogger == nil {
+		return
+	}
+	switch ev.Type {
+	case core.EventLog:
+		debugLogger.Printf("[log] %s", ev.Content)
+	case core.EventPeerFound:
+		debugLogger.Printf("[peer_found] id=%s nick=%s src=%s", ev.Peer.ID, ev.Peer.Nickname, ev.Peer.Source)
+	case core.EventPeerLost:
+		debugLogger.Printf("[peer_lost] id=%s", ev.Peer.ID)
+	case core.EventTextReceived:
+		debugLogger.Printf("[text] from=%s content=%q", ev.From, ev.Content)
+	case core.EventFileStart:
+		debugLogger.Printf("[file_start] from=%s name=%s size=%d outgoing=%v", ev.From, ev.Name, ev.Size, ev.Outgoing)
+	case core.EventFileProgress:
+		debugLogger.Printf("[file_progress] from=%s %d/%d outgoing=%v", ev.From, ev.Received, ev.Total, ev.Outgoing)
+	case core.EventFileDone:
+		debugLogger.Printf("[file_done] from=%s name=%s path=%s outgoing=%v", ev.From, ev.Name, ev.Path, ev.Outgoing)
+	case core.EventError:
+		debugLogger.Printf("[error] %v", ev.Err)
+	case core.EventReady:
+		debugLogger.Printf("[ready] addr=%s", ev.LocalAddr)
+	default:
+		debugLogger.Printf("[%s] %+v", ev.Type, ev)
+	}
+}
+
 func forwardCoreEvents(events <-chan core.Event, prog *tea.Program) {
 	for ev := range events {
+		debugEvent(ev)
 		switch ev.Type {
 		case core.EventPeerFound:
 			prog.Send(ui.MsgPeerFound{Info: ev.Peer})
