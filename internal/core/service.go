@@ -210,7 +210,11 @@ func (s *Service) Start(ctx context.Context) error {
 		if nick == "" {
 			nick = p.ID.String()[:8] + "..."
 		}
-		s.log("[" + p.Source + "] 피어 발견: " + nick)
+		idHint := "no-id"
+		if p.ID != "" {
+			idHint = p.ID.String()[:8] + "..."
+		}
+		s.log("[" + p.Source + "] 피어 발견: " + nick + " (" + idHint + ")")
 		s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
 			ID: p.ID, Nickname: p.Nickname, Addrs: p.Addrs, Source: p.Source,
 		}}
@@ -304,13 +308,17 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 				continue
 			}
 			if pid, err := peer.Decode(string(from)); err == nil {
-				// libp2p peer.
+				// libp2p peer. Route through the discovery manager so the same
+				// peer discovered via mDNS/SSDP/DHT collapses into one row and
+				// keeps the source label of whichever channel found it first.
 				s.host.RememberNickname(pid, frame.From)
 				addrs := s.host.Libp2p.Peerstore().Addrs(pid)
 				s.log("닉네임 수신: " + frame.From + " (" + pid.String()[:8] + "...)")
-				s.events <- Event{Type: EventPeerFound, Peer: bnet.PeerInfo{
-					ID: pid, Nickname: frame.From, Addrs: addrs, Source: "dht",
-				}}
+				if s.mgr != nil {
+					s.mgr.Notify(discovery.DiscoveredPeer{
+						ID: pid, Nickname: frame.From, Addrs: addrs, Source: "dht",
+					})
+				}
 			} else if strings.HasPrefix(string(from), "ble-") && s.mgr != nil {
 				// BLE peer whose nickname was unknown at connect time —
 				// propagate via the discovery Manager so OnPeerFound emits EventPeerFound.

@@ -79,7 +79,11 @@ func (m *Manager) Notify(p DiscoveredPeer) {
 		return
 	}
 	merged := existing
-	if p.Source != "" {
+	// "dht" arrives via Hello-frame confirmation on every connection and would
+	// otherwise clobber a more-specific discovery channel (mdns/ssdp/wsd/ble).
+	// Suppress that one overwrite; let real channel upgrades (e.g. ble →
+	// ble→webrtc) proceed.
+	if p.Source != "" && !(p.Source == "dht" && existing.Source != "") {
 		merged.Source = p.Source
 	}
 	if p.Nickname != "" {
