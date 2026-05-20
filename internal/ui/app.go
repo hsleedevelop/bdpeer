@@ -456,7 +456,6 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "/":
 			m.fileFiltering = true
-			m.fileFilter = ""
 			m.fileIdx = 0
 			return m, nil
 		case "1":
