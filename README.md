@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.5
+VERSION=0.5.6
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -49,11 +49,10 @@ curl -L -o bdpeer.tar.gz \
 tar -xzf bdpeer.tar.gz
 xattr -d com.apple.quarantine bdpeer 2>/dev/null
 
-# 3. 서명·entitlement 검증 (선택, 다음 3줄이 보여야 정상)
-codesign -dv --entitlements - ./bdpeer 2>&1 | grep -E "flags|Runtime|bluetooth"
-# flags=0x10002(adhoc,runtime)              ← 'runtime'이 있어야 함
-# Runtime Version=<빌드 SDK 버전>            ← 값은 환경마다 다름
-# [Key] com.apple.security.device.bluetooth
+# 3. 서명 검증 (선택)
+codesign -dv ./bdpeer 2>&1 | grep -E "Identifier|flags"
+# Identifier=dev.hsleedevelop.bdpeer
+# CodeDirectory ... flags=0x2(adhoc) ...
 
 # 4. 실행 — 반드시 Terminal.app 또는 iTerm2에서 (cmux 등 비호환 멀티플렉서 금지)
 ./bdpeer
@@ -65,7 +64,7 @@ codesign -dv --entitlements - ./bdpeer 2>&1 | grep -E "flags|Runtime|bluetooth"
 
 최초 실행 시 시스템에서 **"Terminal이/iTerm이 Bluetooth에 접근하려 합니다"** 다이얼로그가 뜹니다. 허용해야 근거리 피어 발견(BLE)이 동작합니다.
 
-- bdpeer는 ad-hoc 코드서명 + Hardened Runtime + `com.apple.security.device.bluetooth` entitlement로 배포되며, Info.plist에 `NSBluetoothAlwaysUsageDescription`이 임베드되어 있습니다.
+- bdpeer는 ad-hoc 코드서명 + 임베디드 Info.plist(`NSBluetoothAlwaysUsageDescription`) 구성으로 배포됩니다. Hardened Runtime은 macOS 26 + Go cgo 조합에서 SIGABRT를 유발해 사용하지 않습니다.
 - macOS의 TCC는 child process가 아닌 **호스트 터미널 앱**의 권한을 확인합니다. cmux, tmux 일부 빌드 등 Bluetooth usage description이 없는 터미널 멀티플렉서에서 실행하면 다이얼로그가 뜨지 않고 즉시 종료됩니다. 이 경우 Terminal.app 또는 iTerm2에서 실행해 주세요.
 - 권한 다이얼로그를 거부했거나 동작이 이상하다면: 시스템 설정 → 개인 정보 보호 및 보안 → Bluetooth 에서 사용 중인 터미널 앱을 토글로 켜면 됩니다.
 
@@ -141,7 +140,7 @@ make build-win      # Windows amd64 (BLE 스캔 포함)
 make build-linux    # Linux amd64 (BLE 스캔 포함)
 ```
 
-darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명 + Hardened Runtime + Bluetooth entitlement. Apple Developer ID 인증서 없이도 동작하며, `internal/discovery/Info.plist`가 `__TEXT,__info_plist` 섹션에 임베드되어 macOS TCC가 `NSBluetoothAlwaysUsageDescription`을 읽을 수 있습니다.
+darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. Apple Developer ID 인증서 없이도 동작하며, `internal/discovery/Info.plist`가 `__TEXT,__info_plist` 섹션에 임베드되어 macOS TCC가 `NSBluetoothAlwaysUsageDescription`을 읽을 수 있습니다. Hardened Runtime은 macOS 26 + Go cgo 조합에서 BLE 초기화 직후 SIGABRT (`VM - Waiting on busy page was interrupted`)를 유발해 활성화하지 않습니다.
 
 ## 피어 발견 프로토콜
 
