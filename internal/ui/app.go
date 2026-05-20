@@ -88,6 +88,17 @@ type Model struct {
 	fileEntries []fileEntry
 	fileIdx     int
 	confirmPath string
+
+	// Hangul IME fires 2-3 key events per syllable. Re-rendering all three
+	// panels through lipgloss on every keystroke is the dominant cost; cache
+	// the peer and files panels and recompute only when their inputs change.
+	// Shared via pointer so mutation persists across value-copied Models.
+	cache *viewCache
+}
+
+type viewCache struct {
+	peerKey, peerView   string
+	filesKey, filesView string
 }
 
 func New(nickname string) Model {
@@ -106,6 +117,7 @@ func New(nickname string) Model {
 		focus:       focusChat,
 		fileCwd:     cwd,
 		fileEntries: readDir(cwd),
+		cache:       &viewCache{},
 	}
 }
 
@@ -181,7 +193,7 @@ func mainView(m Model) string {
 	}
 	h := m.height - 2
 
-	left := peerListView(m, leftW, h)
+	left := m.cachedPeerView(leftW, h)
 
 	var mid string
 	if m.showLog {
@@ -190,7 +202,7 @@ func mainView(m Model) string {
 		mid = chatView(m, midW, h)
 	}
 
-	right := fileTreeView(m, filesW, h)
+	right := m.cachedFilesView(filesW, h)
 
 	addrHint := ""
 	if m.localAddr != "" {
@@ -522,4 +534,60 @@ func nextPeer(peers []bnet.PeerInfo, active *bnet.PeerInfo) *bnet.PeerInfo {
 		}
 	}
 	return active
+}
+
+// cachedPeerView returns the peer panel, recomputing only when its inputs
+// change. The fingerprint covers everything peerListView reads: panel size,
+// focus highlight, peer list contents, and active selection.
+func (m Model) cachedPeerView(w, h int) string {
+	if m.cache == nil {
+		return peerListView(m, w, h)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%dx%d|f=%v|n=%d", w, h, m.focus == focusPeers, len(m.peers))
+	for _, p := range m.peers {
+		b.WriteByte('|')
+		b.WriteString(string(p.ID))
+		b.WriteByte(':')
+		b.WriteString(p.Nickname)
+		b.WriteByte(':')
+		b.WriteString(p.Source)
+	}
+	b.WriteString("|a=")
+	if m.activePeer != nil {
+		b.WriteString(string(m.activePeer.ID))
+	}
+	key := b.String()
+	if key == m.cache.peerKey && m.cache.peerView != "" {
+		return m.cache.peerView
+	}
+	view := peerListView(m, w, h)
+	m.cache.peerKey = key
+	m.cache.peerView = view
+	return view
+}
+
+// cachedFilesView returns the files panel, recomputing only when its inputs
+// change.
+func (m Model) cachedFilesView(w, h int) string {
+	if m.cache == nil {
+		return fileTreeView(m, w, h)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%dx%d|f=%v|cwd=%s|i=%d|n=%d", w, h, m.focus == focusFiles, m.fileCwd, m.fileIdx, len(m.fileEntries))
+	for _, e := range m.fileEntries {
+		b.WriteByte('|')
+		b.WriteString(e.Name)
+		if e.IsDir {
+			b.WriteByte('/')
+		}
+	}
+	key := b.String()
+	if key == m.cache.filesKey && m.cache.filesView != "" {
+		return m.cache.filesView
+	}
+	view := fileTreeView(m, w, h)
+	m.cache.filesKey = key
+	m.cache.filesView = view
+	return view
 }
