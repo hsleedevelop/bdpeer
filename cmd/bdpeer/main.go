@@ -193,6 +193,11 @@ func initDebugLog() error {
 	debugLogFile = f
 	debugLogger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
 	fmt.Fprintf(os.Stderr, "debug 모드: %s 에 로그를 기록합니다.\n", path)
+	// Redirect fd 2 to the log file so Go runtime fatal errors and panics
+	// (which write directly to stderr) survive the TUI alt-screen takeover.
+	if err := redirectStderrToFile(f); err != nil {
+		debugLogger.Printf("[debug] stderr redirect 실패: %v", err)
+	}
 	return nil
 }
 

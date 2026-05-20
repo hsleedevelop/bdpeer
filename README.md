@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.9
+VERSION=0.5.10
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -139,7 +139,7 @@ make build
 ```bash
 make build          # 현재 플랫폼 (BLE 포함)
 make build-mac      # macOS arm64 + amd64 (CGO=1, BLE 포함)
-make build-win      # Windows amd64 (BLE 스캔 포함)
+make build-win      # Windows amd64 (BLE 광고+스캔 포함)
 make build-linux    # Linux amd64 (BLE 스캔 포함)
 ```
 
@@ -154,7 +154,7 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
 | BLE + WebRTC | macOS (기본 내장, CoreBluetooth) | BLE로 발견 → WebRTC로 연결 — **다른 서브넷·NAT 무관** (실패 시 BLE 직접 전송) |
 | BLE GATT | Linux (기본 내장, tinygo) | BLE 발견 + GATT DataChar로 직접 메시지 송수신 |
-| BLE 스캔 | Windows (기본 내장, tinygo) | 근거리 근접 발견 |
+| BLE 광고+스캔 | Windows (기본 내장, tinygo) | 근거리 근접 발견 — v0.5.10부터 광고 추가로 Windows↔Windows 상호 발견 가능 |
 | libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
 > **SSDP 자동 연결 (v0.4.3+)**: SSDP 광고에 libp2p peer.ID가 포함되어, 같은 LAN의 Windows/Android 피어가 발견되면 별도 `/connect` 없이도 libp2p로 자동 연결됩니다. 발견 즉시 양방향 텍스트·파일 전송 가능.  

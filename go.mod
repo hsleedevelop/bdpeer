@@ -10,7 +10,11 @@ require (
 	github.com/koron/go-ssdp v0.9.0
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/libp2p/go-libp2p-kad-dht v0.39.2
+	github.com/mattn/go-runewidth v0.0.16
+	github.com/minio/selfupdate v0.6.0
 	github.com/multiformats/go-multiaddr v0.16.1
+	github.com/pion/webrtc/v4 v4.2.12
+	golang.org/x/sys v0.43.0
 	tinygo.org/x/bluetooth v0.15.0
 )
 
@@ -64,11 +68,9 @@ require (
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
-	github.com/minio/selfupdate v0.6.0 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
@@ -98,11 +100,8 @@ require (
 	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.10 // indirect
 	github.com/pion/stun/v3 v3.1.2 // indirect
-	github.com/pion/transport/v3 v3.1.1 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
-	github.com/pion/turn/v4 v4.1.4 // indirect
 	github.com/pion/turn/v5 v5.0.3 // indirect
-	github.com/pion/webrtc/v4 v4.2.12 // indirect
 	github.com/polydawn/refmt v0.89.1-0.20231129105047-37766d95467a // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -138,7 +137,6 @@ require (
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260409153401-be6f6cb8b1fa // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.14.0 // indirect

@@ -14,6 +14,23 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := adapter.Enable(); err != nil {
 		return fmt.Errorf("BLE enable (ensure Bluetooth is on): %w", err)
 	}
+
+	adv := adapter.DefaultAdvertisement()
+	if err := adv.Configure(bluetooth.AdvertisementOptions{
+		ManufacturerData: []bluetooth.ManufacturerDataElement{
+			{CompanyID: 0xFFFF, Data: []byte(nickname)},
+		},
+	}); err != nil {
+		return fmt.Errorf("BLE advertisement configure: %w", err)
+	}
+	if err := adv.Start(); err != nil {
+		return fmt.Errorf("BLE advertisement start: %w", err)
+	}
+	go func() {
+		<-ctx.Done()
+		_ = adv.Stop()
+	}()
+
 	go func() {
 		_ = adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
 			select {
