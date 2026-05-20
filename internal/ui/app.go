@@ -129,6 +129,33 @@ func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh cha
 	return m
 }
 
+// refreshSendTarget returns the active peer's current ID after re-resolving
+// against m.peers (so a newly-discovered ID for a previously provisional
+// BLE/SSDP entry is picked up). On failure it appends a system warning to
+// both logs and messages and returns ok=false.
+func (m Model) refreshSendTarget() (Model, peer.ID, bool) {
+	if m.activePeer == nil {
+		warn := "전송 불가: 활성 피어 없음"
+		m.logs = append(m.logs, warn)
+		m.messages = append(m.messages, Message{From: "system", Content: warn})
+		return m, "", false
+	}
+	for _, p := range m.peers {
+		if samePeer(p, *m.activePeer) {
+			fresh := p
+			m.activePeer = &fresh
+			break
+		}
+	}
+	if m.activePeer.ID == "" {
+		warn := "전송 불가: '" + m.activePeer.Nickname + "' 의 ID 미확정 — 잠시 후 다시 시도하거나 /connect 사용"
+		m.logs = append(m.logs, warn)
+		m.messages = append(m.messages, Message{From: "system", Content: warn})
+		return m, "", false
+	}
+	return m, m.activePeer.ID, true
+}
+
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -236,9 +263,12 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			path := m.confirmPath
 			m.confirmPath = ""
-			if m.activePeer != nil && m.sendCh != nil {
+			var id peer.ID
+			var ok bool
+			m, id, ok = m.refreshSendTarget()
+			if ok && m.sendCh != nil {
 				select {
-				case m.sendCh <- core.SendRequest{To: m.activePeer.ID, File: path}:
+				case m.sendCh <- core.SendRequest{To: id, File: path}:
 				default:
 				}
 			}
@@ -315,25 +345,10 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputBuf = ""
 			return m, nil
 		}
-		if m.activePeer == nil {
-			m.logs = append(m.logs, "전송 불가: 활성 피어 없음")
-			m.messages = append(m.messages, Message{From: "system", Content: "전송 불가: 활성 피어 없음"})
-			m.inputBuf = ""
-			return m, nil
-		}
-		// Re-resolve activePeer against m.peers so that newly-discovered IDs
-		// (e.g. DHT resolves nickname after BLE/SSDP) are picked up before send.
-		for _, p := range m.peers {
-			if samePeer(p, *m.activePeer) {
-				fresh := p
-				m.activePeer = &fresh
-				break
-			}
-		}
-		if m.activePeer.ID == "" {
-			warn := "전송 불가: '" + m.activePeer.Nickname + "' 의 ID 미확정 — 잠시 후 다시 시도하거나 /connect 사용"
-			m.logs = append(m.logs, warn)
-			m.messages = append(m.messages, Message{From: "system", Content: warn})
+		var id peer.ID
+		var ok bool
+		m, id, ok = m.refreshSendTarget()
+		if !ok {
 			m.inputBuf = ""
 			return m, nil
 		}
@@ -341,7 +356,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			path := strings.TrimSpace(strings.TrimPrefix(content, "/file "))
 			if m.sendCh != nil {
 				select {
-				case m.sendCh <- core.SendRequest{To: m.activePeer.ID, File: path}:
+				case m.sendCh <- core.SendRequest{To: id, File: path}:
 				default:
 				}
 			}
@@ -349,7 +364,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, Message{From: m.nickname, Content: content, Mine: true})
 			if m.sendCh != nil {
 				select {
-				case m.sendCh <- core.SendRequest{To: m.activePeer.ID, Content: content}:
+				case m.sendCh <- core.SendRequest{To: id, Content: content}:
 				default:
 				}
 			}
