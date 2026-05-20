@@ -40,13 +40,22 @@
 Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습니다. **반드시 자기 아키텍처에 맞는 바이너리를 사용해야 합니다** — Rosetta 2로 amd64를 실행하면 CoreBluetooth TCC 경로에서 크래시가 발생합니다.
 
 ```bash
-# 압축 해제
-tar -xzf bdpeer_*_darwin_*.tar.gz
+# 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
+VERSION=0.5.5
+curl -L -o bdpeer.tar.gz \
+  https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
-# Gatekeeper 차단 해제 (Developer ID 미서명)
-xattr -d com.apple.quarantine bdpeer
+# 2. 압축 해제 + Gatekeeper 격리 속성 제거
+tar -xzf bdpeer.tar.gz
+xattr -d com.apple.quarantine bdpeer 2>/dev/null
 
-# 실행 — 반드시 Terminal.app 또는 iTerm2에서
+# 3. 서명·entitlement 검증 (선택, 다음 3줄이 보여야 정상)
+codesign -dv --entitlements - ./bdpeer 2>&1 | grep -E "flags|Runtime|bluetooth"
+# flags=0x10002(adhoc,runtime)
+# Runtime Version=26.2.0
+# [Key] com.apple.security.device.bluetooth
+
+# 4. 실행 — 반드시 Terminal.app 또는 iTerm2에서 (cmux 등 비호환 멀티플렉서 금지)
 ./bdpeer
 ```
 
