@@ -67,6 +67,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) CBCentralManager *centralMgr;
 @property (nonatomic, strong) NSMutableDictionary<NSUUID *, CBPeripheral *> *peripherals;
 @property (nonatomic, strong) NSMutableSet<NSString *> *readyPeripheralIDs;
+@property (nonatomic, strong) NSMutableSet<NSString *> *connectingPeripheralIDs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *peripheralNames;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *notifiedPeripheralNames;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
@@ -85,6 +86,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
     _pendingNotifies    = [NSMutableArray new];
     _peripherals        = [NSMutableDictionary new];
     _readyPeripheralIDs = [NSMutableSet new];
+    _connectingPeripheralIDs = [NSMutableSet new];
     _peripheralNames    = [NSMutableDictionary new];
     _notifiedPeripheralNames = [NSMutableDictionary new];
     _peripheralSDPBufs  = [NSMutableDictionary new];
@@ -276,6 +278,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     if (!identifier) return;
     NSString *uuid = identifier.UUIDString;
     [_readyPeripheralIDs removeObject:uuid];
+    [_connectingPeripheralIDs removeObject:uuid];
     [_peripheralSDPBufs  removeObjectForKey:uuid];
     [_peripheralDataBufs removeObjectForKey:uuid];
     [_notifiedPeripheralNames removeObjectForKey:uuid];
@@ -329,6 +332,45 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     return [self notifyPeer:p name:[self fallbackNameForPeripheral:p] context:context];
 }
 
+- (void)scheduleConnectTimeoutForPeripheral:(CBPeripheral *)p name:(NSString *)name {
+    if (!p) return;
+    NSUUID *identifier = p.identifier;
+    NSString *uuid = identifier.UUIDString;
+    NSString *label = name ?: p.name ?: @"unknown";
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)8 * NSEC_PER_SEC), _bleQueue, ^{
+        if (![_connectingPeripheralIDs containsObject:uuid] ||
+            [_readyPeripheralIDs containsObject:uuid]) {
+            return;
+        }
+        CBPeripheral *current = _peripherals[identifier];
+        if (!current) return;
+        if (current.state == CBPeripheralStateConnecting) {
+            bd_ble_log([NSString stringWithFormat:@"connect timeout; retry later: %@ (%@)", label, uuid]);
+            [_centralMgr cancelPeripheralConnection:current];
+            [self markPeripheralUnready:identifier];
+            [_peripheralNames removeObjectForKey:uuid];
+            [_peripherals removeObjectForKey:identifier];
+        } else if (current.state == CBPeripheralStateConnected) {
+            [_connectingPeripheralIDs removeObject:uuid];
+            [current discoverServices:@[svcUUID()]];
+        } else {
+            [self markPeripheralUnready:identifier];
+            [_peripheralNames removeObjectForKey:uuid];
+            [_peripherals removeObjectForKey:identifier];
+        }
+    });
+}
+
+- (void)connectPeripheral:(CBPeripheral *)p name:(NSString *)name central:(CBCentralManager *)cm {
+    if (!p) return;
+    NSString *uuid = p.identifier.UUIDString;
+    if ([_connectingPeripheralIDs containsObject:uuid]) return;
+    [_connectingPeripheralIDs addObject:uuid];
+    bd_ble_log([NSString stringWithFormat:@"connect requested: %@ (%@)", name ?: p.name ?: @"unknown", uuid]);
+    [cm connectPeripheral:p options:nil];
+    [self scheduleConnectTimeoutForPeripheral:p name:name];
+}
+
 - (void)centralManager:(CBCentralManager *)cm
  didDiscoverPeripheral:(CBPeripheral *)p
      advertisementData:(NSDictionary *)ad
@@ -343,7 +385,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
                    existing.state == CBPeripheralStateDisconnecting) {
             [self markPeripheralUnready:p.identifier];
             _peripherals[p.identifier] = p;
-            [cm connectPeripheral:p options:nil];
+            [self connectPeripheral:p name:knownName central:cm];
         }
         return;
     }
@@ -351,10 +393,11 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     NSString *name = ad[CBAdvertisementDataLocalNameKey] ?: p.name ?: @"unknown";
     [self rememberAdvertisedName:name forPeripheral:p];
     bd_ble_log([NSString stringWithFormat:@"discovered peripheral: %@ (%@)", name, p.identifier.UUIDString]);
-    [cm connectPeripheral:p options:nil];
+    [self connectPeripheral:p name:name central:cm];
 }
 
 - (void)centralManager:(CBCentralManager *)cm didConnectPeripheral:(CBPeripheral *)p {
+    [_connectingPeripheralIDs removeObject:p.identifier.UUIDString];
     bd_ble_log([NSString stringWithFormat:@"connected peripheral: %@", p.identifier.UUIDString]);
     p.delegate = self;
     [p discoverServices:@[svcUUID()]];
