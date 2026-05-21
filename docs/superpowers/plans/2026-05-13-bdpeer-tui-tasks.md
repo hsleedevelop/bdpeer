@@ -92,3 +92,38 @@
   - Scope: README/spec note
   - Deliverable: DHT is marked as initial internet discovery only; circuit relay bootstrap/reservation remains a future task
   - Verify: plan §Spec Coverage Check keeps Internet P2P as ⚠️ until relay work exists
+
+## Phase 4: Windows BLE GATT stabilization
+
+- [x] **BLE Task 1: README and release note update for v0.5.11**
+  - Scope: `README.md`, release/tag notes
+  - Deliverable: Windows support text reflects GATT direct text transfer, `BD9E0005` session char, session-addressed `S` chunks, and the fact that both Windows peers need v0.5.11+ for BLE direct messaging
+  - Verify: README no longer describes Windows BLE as discovery-only; build comments say Windows BLE GATT, not only advertising+scanning
+
+- [ ] **BLE Task 2: Windows two-peer smoke test**
+  - Scope: built Windows binaries on two machines
+  - Deliverable: Windows A and B discover each other with `id=ble-<session>` and send chat messages without `/connect` on different subnets
+  - Verify: no duplicate message display; no self-echo; no repeated `id 미확정`; debug log shows `peer_found` with non-empty BLE synthetic ID
+  - Watch: dual BLE connections can exist at the same time. Confirm A→B does not appear again on A through the opposite direction notification/write path.
+  - Watch: `suppressNextWindowsLocalWrite` depends on callback ordering in tinygo/WinRT. Confirm real hardware does not reorder local write suppression and remote notification delivery.
+
+- [ ] **BLE Task 3: Windows three-peer session-routing smoke test**
+  - Scope: built Windows binaries on three nearby machines
+  - Deliverable: A can send to B while C is also connected/subscribed, and C does not display B-targeted messages
+  - Verify: session filter drops chunks whose `toSession` does not match local session; no chunk reassembly contamination between B and C
+  - Watch: earlier `windowsDefaultPeer`/`currentWindowsDefaultPeer` single-peer routing was removed in favor of session IDs. Confirm logs and UI never fall back to a generic `ble-peripheral` or `peripheral` peer key.
+
+- [ ] **BLE Task 4: Legacy and cross-platform fallback**
+  - Scope: `internal/discovery/ble_windows.go`, `internal/discovery/ble_linux.go`, macOS BLE bridge if needed
+  - Deliverable: Windows detects whether remote peer has `BD9E0005`; if absent, it uses legacy `D` chunks where still supported, or reports a clear unsupported-version log
+  - Verify: Windows v0.5.11+ ↔ old Windows does not silently fail; Windows ↔ Linux/macOS behavior is documented and either works through legacy chunks or has a clear fallback path
+
+- [ ] **BLE Task 5: Linux service UUID discovery fallback**
+  - Scope: `internal/discovery/ble_linux.go`
+  - Deliverable: Linux does not require manufacturer-data nickname before attempting bdpeer GATT service discovery; it can scan by `bleServiceUUID`, connect, then read NickChar
+  - Verify: Linux can discover a Windows peer that advertises only the GATT service provider path, with no manufacturer data nickname
+
+- [ ] **BLE Task 6: WinRT peer-specific notify investigation**
+  - Scope: Windows BLE implementation below `tinygo.org/x/bluetooth`, likely direct `winrt-go`
+  - Deliverable: determine whether Windows can map subscribed centrals and notify one peer only, replacing broadcast+session-filter routing if practical
+  - Verify: proof-of-concept or documented decision; keep session-addressed chunks as fallback unless peer-specific notify is proven stable
