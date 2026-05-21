@@ -24,6 +24,7 @@ var bleCallbacks struct {
 	onSDPReceived       func(peerUUID, sdp string, isOffer bool)
 	onCentralSubscribed func(centralUUID string)
 	onDataReceived      func(peerUUID string, data []byte)
+	onLog               func(string)
 }
 
 // SetBLECallbacks registers Go handlers called from CoreBluetooth.
@@ -46,6 +47,12 @@ func SetBLEDataCallback(onData func(peerUUID string, data []byte)) {
 	bleCallbacks.Lock()
 	defer bleCallbacks.Unlock()
 	bleCallbacks.onDataReceived = onData
+}
+
+func SetBLELogCallback(onLog func(string)) {
+	bleCallbacks.Lock()
+	defer bleCallbacks.Unlock()
+	bleCallbacks.onLog = onLog
 }
 
 // BLEPeripheralSendDataTo sends data to a specific central (peripheral→central notify).
@@ -172,4 +179,14 @@ func go_ble_data_received(peerUUID *C.char, data *C.uint8_t, length C.int) {
 	}
 	buf := C.GoBytes(unsafe.Pointer(data), length)
 	cb(C.GoString(peerUUID), buf)
+}
+
+//export go_ble_log
+func go_ble_log(msg *C.char) {
+	bleCallbacks.Lock()
+	cb := bleCallbacks.onLog
+	bleCallbacks.Unlock()
+	if cb != nil {
+		cb(C.GoString(msg))
+	}
 }

@@ -19,6 +19,9 @@ import (
 func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager) {
 	// Wire BLE data transport handler — same inbound processor as other transports.
 	s.bleT.SetHandler(s.onInboundStream)
+	discovery.SetBLELogCallback(func(msg string) {
+		s.log("[ble] " + msg)
+	})
 
 	// Route incoming BLE data to the transport.
 	discovery.SetBLEDataCallback(func(peerUUID string, data []byte) {

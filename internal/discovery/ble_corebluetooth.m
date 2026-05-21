@@ -10,6 +10,7 @@ extern void go_ble_peer_found(const char *nickname, const char *peer_uuid);
 extern void go_ble_sdp_received(const char *peer_uuid, const char *sdp, int is_offer);
 extern void go_ble_central_subscribed(const char *central_uuid);
 extern void go_ble_data_received(const char *peer_uuid, const uint8_t *data, int len);
+extern void go_ble_log(const char *msg);
 
 // ── UUIDs ─────────────────────────────────────────────────────────────────────
 static NSString *const kServiceUUIDStr  = @"BD9E0001-F0F0-1000-8000-00805F9B34FB";
@@ -21,6 +22,11 @@ static CBUUID *svcUUID(void)  { return [CBUUID UUIDWithString:kServiceUUIDStr]; 
 static CBUUID *nickUUID(void) { return [CBUUID UUIDWithString:kNickCharUUIDStr]; }
 static CBUUID *sdpUUID(void)  { return [CBUUID UUIDWithString:kSDPCharUUIDStr];  }
 static CBUUID *dataUUID(void) { return [CBUUID UUIDWithString:kDataCharUUIDStr]; }
+
+static void bd_ble_log(NSString *msg) {
+    if (!msg) return;
+    go_ble_log([msg UTF8String]);
+}
 
 // ── Chunk protocol ────────────────────────────────────────────────────────────
 // Header: [type(1)] [idx_hi(1)] [idx_lo(1)] [total_hi(1)] [total_lo(1)]
@@ -94,7 +100,11 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 // ── Peripheral ────────────────────────────────────────────────────────────────
 
 - (void)peripheralManagerDidUpdateState:(CBPeripheralManager *)pm {
-    if (pm.state != CBManagerStatePoweredOn) return;
+    if (pm.state != CBManagerStatePoweredOn) {
+        bd_ble_log([NSString stringWithFormat:@"peripheral state not powered: %ld", (long)pm.state]);
+        return;
+    }
+    bd_ble_log(@"peripheral powered on; adding service");
 
     CBMutableCharacteristic *nickChar = [[CBMutableCharacteristic alloc]
         initWithType:nickUUID()
@@ -120,11 +130,22 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)pm didAddService:(CBService *)service error:(NSError *)error {
-    if (error) return;
+    if (error) {
+        bd_ble_log([NSString stringWithFormat:@"service add failed: %@", error.localizedDescription]);
+        return;
+    }
     [pm startAdvertising:@{
         CBAdvertisementDataServiceUUIDsKey: @[svcUUID()],
         CBAdvertisementDataLocalNameKey: _myNickname
     }];
+}
+
+- (void)peripheralManagerDidStartAdvertising:(CBPeripheralManager *)pm error:(NSError *)error {
+    if (error) {
+        bd_ble_log([NSString stringWithFormat:@"advertising failed: %@", error.localizedDescription]);
+        return;
+    }
+    bd_ble_log([NSString stringWithFormat:@"advertising started: %@", _myNickname]);
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)pm
@@ -235,25 +256,45 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 }
 
 - (void)startCentralScan {
-    if (_centralMgr.state != CBManagerStatePoweredOn) return;
-    [_centralMgr scanForPeripheralsWithServices:@[svcUUID()] options:nil];
+    if (_centralMgr.state != CBManagerStatePoweredOn) {
+        bd_ble_log([NSString stringWithFormat:@"scan skipped; central state: %ld", (long)_centralMgr.state]);
+        return;
+    }
+    bd_ble_log(@"scan started");
+    [_centralMgr scanForPeripheralsWithServices:@[svcUUID()] options:@{
+        CBCentralManagerScanOptionAllowDuplicatesKey: @YES
+    }];
 }
 
 - (void)centralManager:(CBCentralManager *)cm
  didDiscoverPeripheral:(CBPeripheral *)p
      advertisementData:(NSDictionary *)ad
                   RSSI:(NSNumber *)RSSI {
-    if (_peripherals[p.identifier]) return; // already known
+    CBPeripheral *existing = _peripherals[p.identifier];
+    if (existing) {
+        if (existing.state == CBPeripheralStateConnected) {
+            [existing discoverServices:@[svcUUID()]];
+        } else if (existing.state == CBPeripheralStateDisconnected ||
+                   existing.state == CBPeripheralStateDisconnecting) {
+            _peripherals[p.identifier] = p;
+            [cm connectPeripheral:p options:nil];
+        }
+        return;
+    }
     _peripherals[p.identifier] = p;
+    NSString *name = ad[CBAdvertisementDataLocalNameKey] ?: p.name ?: @"unknown";
+    bd_ble_log([NSString stringWithFormat:@"discovered peripheral: %@ (%@)", name, p.identifier.UUIDString]);
     [cm connectPeripheral:p options:nil];
 }
 
 - (void)centralManager:(CBCentralManager *)cm didConnectPeripheral:(CBPeripheral *)p {
+    bd_ble_log([NSString stringWithFormat:@"connected peripheral: %@", p.identifier.UUIDString]);
     p.delegate = self;
     [p discoverServices:@[svcUUID()]];
 }
 
 - (void)centralManager:(CBCentralManager *)cm didFailToConnectPeripheral:(CBPeripheral *)p error:(NSError *)e {
+    bd_ble_log([NSString stringWithFormat:@"connect failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @""]);
     [_peripherals removeObjectForKey:p.identifier];
 }
 
@@ -268,7 +309,11 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 }
 
 - (void)peripheral:(CBPeripheral *)p didDiscoverServices:(NSError *)e {
-    if (e) return;
+    if (e || p.services.count == 0) {
+        bd_ble_log([NSString stringWithFormat:@"service discovery failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @"no services"]);
+        [_peripherals removeObjectForKey:p.identifier];
+        return;
+    }
     for (CBService *s in p.services)
         [p discoverCharacteristics:@[nickUUID(), sdpUUID(), dataUUID()] forService:s];
 }
@@ -276,7 +321,11 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 - (void)peripheral:(CBPeripheral *)p
 didDiscoverCharacteristicsForService:(CBService *)s
              error:(NSError *)e {
-    if (e) return;
+    if (e || s.characteristics.count == 0) {
+        bd_ble_log([NSString stringWithFormat:@"characteristic discovery failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @"no characteristics"]);
+        [_peripherals removeObjectForKey:p.identifier];
+        return;
+    }
     for (CBCharacteristic *c in s.characteristics) {
         if ([c.UUID isEqual:nickUUID()])  [p readValueForCharacteristic:c];
         if ([c.UUID isEqual:sdpUUID()])   [p setNotifyValue:YES forCharacteristic:c];
@@ -291,6 +340,11 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
 
     if ([c.UUID isEqual:nickUUID()]) {
         NSString *nick = [[NSString alloc] initWithData:c.value encoding:NSUTF8StringEncoding];
+        if (!nick || nick.length == 0) {
+            bd_ble_log([NSString stringWithFormat:@"nickname read empty: %@", p.identifier.UUIDString]);
+            [_peripherals removeObjectForKey:p.identifier];
+            return;
+        }
         go_ble_peer_found([nick UTF8String], [p.identifier.UUIDString UTF8String]);
         return;
     }
