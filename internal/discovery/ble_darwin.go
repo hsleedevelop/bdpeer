@@ -13,6 +13,7 @@ import "C"
 import (
 	"context"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -111,6 +112,16 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 		<-done
 	case <-done:
 	}
+	return nil
+}
+
+// SearchBLE scans for nearby bdpeer peripherals for a bounded window.
+func SearchBLE(_ context.Context, duration time.Duration) error {
+	seconds := int(duration.Round(time.Second) / time.Second)
+	if seconds <= 0 {
+		seconds = 5
+	}
+	C.ble_scan_for(C.int(seconds))
 	return nil
 }
 

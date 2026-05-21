@@ -231,8 +231,12 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 // ── Central ───────────────────────────────────────────────────────────────────
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)cm {
-    if (cm.state != CBManagerStatePoweredOn) return;
-    [cm scanForPeripheralsWithServices:@[svcUUID()] options:nil];
+    // Scanning is intentionally user-triggered via ble_scan_for.
+}
+
+- (void)startCentralScan {
+    if (_centralMgr.state != CBManagerStatePoweredOn) return;
+    [_centralMgr scanForPeripheralsWithServices:@[svcUUID()] options:nil];
 }
 
 - (void)centralManager:(CBCentralManager *)cm
@@ -241,6 +245,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
                   RSSI:(NSNumber *)RSSI {
     if (_peripherals[p.identifier]) return; // already known
     _peripherals[p.identifier] = p;
+    [cm stopScan];
     [cm connectPeripheral:p options:nil];
 }
 
@@ -454,6 +459,17 @@ void ble_stop(void) {
     [gBLE stop];
     gBLE = nil;
     CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+void ble_scan_for(int seconds) {
+    if (!gBLE) return;
+    int secs = seconds <= 0 ? 5 : seconds;
+    dispatch_async(gBLE.bleQueue, ^{
+        [gBLE startCentralScan];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)secs * NSEC_PER_SEC), gBLE.bleQueue, ^{
+            [gBLE.centralMgr stopScan];
+        });
+    });
 }
 
 void ble_peripheral_send_sdp(const char *sdp, char sdp_type) {

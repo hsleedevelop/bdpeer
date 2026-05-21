@@ -66,22 +66,23 @@ type fileXfer struct {
 }
 
 type Model struct {
-	screen     Screen
-	nickname   string
-	localAddr  string
-	peers      []bnet.PeerInfo
-	activePeer *bnet.PeerInfo
-	messages   []Message
-	logs       []string
-	showLog    bool
-	inputBuf   string
-	width      int
-	height     int
-	err        error
-	fileXfer   *fileXfer
-	sendCh     chan<- core.SendRequest
-	nickCh     chan<- string
-	connectCh  chan<- string
+	screen      Screen
+	nickname    string
+	localAddr   string
+	peers       []bnet.PeerInfo
+	activePeer  *bnet.PeerInfo
+	messages    []Message
+	logs        []string
+	showLog     bool
+	inputBuf    string
+	width       int
+	height      int
+	err         error
+	fileXfer    *fileXfer
+	sendCh      chan<- core.SendRequest
+	nickCh      chan<- string
+	connectCh   chan<- string
+	bleSearchCh chan<- struct{}
 
 	focus         focusArea
 	fileCwd       string
@@ -123,11 +124,12 @@ func New(nickname string) Model {
 	}
 }
 
-func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string, connectCh chan<- string) Model {
+func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh chan<- string, connectCh chan<- string, bleSearchCh chan<- struct{}) Model {
 	m := New(nickname)
 	m.sendCh = sendCh
 	m.nickCh = nickCh
 	m.connectCh = connectCh
+	m.bleSearchCh = bleSearchCh
 	return m
 }
 
@@ -291,18 +293,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePeersKey(msg)
 	}
 
-	// focusChat: pre-check panel shortcuts when input is empty.
-	if m.inputBuf == "" && msg.Type == tea.KeyRunes {
-		switch msg.String() {
-		case "1":
-			m.focus = focusPeers
-			return m, nil
-		case "3":
-			m.focus = focusFiles
-			return m, nil
-		}
-	}
-
 	switch msg.Type {
 	case tea.KeyEsc:
 		return m, tea.Quit
@@ -416,6 +406,8 @@ func (m Model) handlePeersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus = focusChat
 		case "3":
 			m.focus = focusFiles
+		case "s", "S":
+			m.requestBLESearch()
 		case "q":
 			return m, tea.Quit
 		}
@@ -464,6 +456,9 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "2":
 			m.focus = focusChat
 			return m, nil
+		case "s", "S":
+			m.requestBLESearch()
+			return m, nil
 		}
 	}
 	vis := visibleFileEntries(m.fileEntries, m.fileFilter)
@@ -509,6 +504,16 @@ func (m Model) handleFilesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPath = full
 	}
 	return m, nil
+}
+
+func (m Model) requestBLESearch() {
+	if m.bleSearchCh == nil {
+		return
+	}
+	select {
+	case m.bleSearchCh <- struct{}{}:
+	default:
+	}
 }
 
 func appendOrUpdate(peers []bnet.PeerInfo, info bnet.PeerInfo) []bnet.PeerInfo {

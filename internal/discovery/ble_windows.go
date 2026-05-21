@@ -20,6 +20,11 @@ var (
 	windowsCallbacksMu sync.Mutex
 	windowsPeerFoundCb func(nickname, peerUUID string)
 
+	windowsSearchMu       sync.Mutex
+	windowsSearchMgr      *Manager
+	windowsSearchNickname string
+	windowsScanning       bool
+
 	windowsSessionID string
 
 	windowsDataCharsMu  sync.RWMutex
@@ -49,6 +54,11 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := adapter.Enable(); err != nil {
 		return fmt.Errorf("BLE enable (ensure Bluetooth is on): %w", err)
 	}
+	windowsSearchMu.Lock()
+	windowsSearchMgr = mgr
+	windowsSearchNickname = nickname
+	windowsSearchMu.Unlock()
+
 	windowsSessionID = newWindowsSessionID()
 
 	if err := addWindowsService(adapter, nickname); err != nil {
@@ -58,22 +68,62 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 		return err
 	}
 
-	go func() {
-		_ = adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
-			select {
-			case <-ctx.Done():
-				a.StopScan()
-				return
-			default:
-			}
-			if !isBDPeerAdvertisement(d) {
-				return
-			}
-			peerAddr := d.Address.String()
-			go connectAndSubscribeWindows(ctx, adapter, d, peerAddr, nickname, mgr)
-		})
-	}()
 	<-ctx.Done()
+	return nil
+}
+
+func SearchBLE(ctx context.Context, duration time.Duration) error {
+	windowsSearchMu.Lock()
+	if windowsScanning {
+		windowsSearchMu.Unlock()
+		return nil
+	}
+	windowsScanning = true
+	nickname := windowsSearchNickname
+	mgr := windowsSearchMgr
+	windowsSearchMu.Unlock()
+	defer func() {
+		windowsSearchMu.Lock()
+		windowsScanning = false
+		windowsSearchMu.Unlock()
+	}()
+
+	if mgr == nil {
+		return fmt.Errorf("BLE search requested before BLE start")
+	}
+
+	adapter := bluetooth.DefaultAdapter
+	scanCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	var found bluetooth.ScanResult
+	foundPeer := false
+	go func() {
+		<-scanCtx.Done()
+		_ = adapter.StopScan()
+	}()
+	_ = adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
+		select {
+		case <-scanCtx.Done():
+			_ = a.StopScan()
+			return
+		default:
+		}
+		if !isBDPeerAdvertisement(d) {
+			return
+		}
+		peerAddr := d.Address.String()
+		if !beginWindowsConnect(peerAddr) {
+			return
+		}
+		found = d
+		foundPeer = true
+		_ = a.StopScan()
+	})
+
+	if foundPeer {
+		go connectAndSubscribeWindows(ctx, adapter, found, found.Address.String(), nickname, mgr)
+	}
 	return nil
 }
 
@@ -109,6 +159,16 @@ func SetBLEDataCallback(onData func(peerUUID string, data []byte)) {
 	windowsDataMu.Lock()
 	windowsDataCb = onData
 	windowsDataMu.Unlock()
+}
+
+func beginWindowsConnect(peerAddr string) bool {
+	windowsConnectingMu.Lock()
+	defer windowsConnectingMu.Unlock()
+	if _, already := windowsConnecting[peerAddr]; already {
+		return false
+	}
+	windowsConnecting[peerAddr] = struct{}{}
+	return true
 }
 
 func BLEPeripheralSendDataTo(peerSessionID string, data []byte) {
@@ -181,16 +241,6 @@ func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 }
 
 func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter, d bluetooth.ScanResult, peerAddr, localNickname string, mgr *Manager) {
-	windowsConnectingMu.Lock()
-	_, already := windowsConnecting[peerAddr]
-	if !already {
-		windowsConnecting[peerAddr] = struct{}{}
-	}
-	windowsConnectingMu.Unlock()
-	if already {
-		return
-	}
-
 	var remoteSession string
 	cleanup := func() {
 		windowsConnectingMu.Lock()

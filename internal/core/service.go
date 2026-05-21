@@ -265,8 +265,8 @@ func (s *Service) Start(ctx context.Context) error {
 	_ = discovery.ListenWSD(ctx, mgr)
 	_ = discovery.SendWSDHello(ctx, s.cfg.Nickname, listenPort(s.host))
 
-	// [3/4] BLE — 근거리 크로스망 (~10m), darwin: BLE+WebRTC upgrade
-	s.log("[3/4] BLE (근거리 ~10m) 시작...")
+	// [3/4] BLE — advertising/GATT stays ready; scanning is user-triggered.
+	s.log("[3/4] BLE (근거리 ~10m) 준비... 검색은 s 키로 5초 실행")
 	go s.startBLEWithWebRTC(ctx, mgr)
 
 	// [4/4] DHT — 인터넷
@@ -408,6 +408,18 @@ func (s *Service) ConnectByNickname(ctx context.Context, nickname string) error 
 	}
 	s.log("발견: " + pi.ID.String()[:8] + "... 연결 중")
 	return s.host.Libp2p.Connect(ctx, pi)
+}
+
+func (s *Service) SearchBLE(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		duration = 5 * time.Second
+	}
+	s.log(fmt.Sprintf("[BLE] %s 검색 시작", duration))
+	if err := discovery.SearchBLE(ctx, duration); err != nil {
+		return err
+	}
+	s.log("[BLE] 검색 종료")
+	return nil
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {

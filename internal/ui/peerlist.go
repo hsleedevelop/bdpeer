@@ -48,9 +48,9 @@ func peerListView(m Model, width, height int) string {
 		sb.WriteString(line + "\n")
 	}
 	if visible == 0 {
-		sb.WriteString(StyleHelp.Render("searching...") + "\n")
+		sb.WriteString(StyleHelp.Render("s로 BLE 검색") + "\n")
 	}
 
-	sb.WriteString("\n" + StyleHelp.Render("↑/↓ select  → 채팅으로  q quit"))
+	sb.WriteString("\n" + StyleHelp.Render("s search  ↑/↓ select  → 채팅  q quit"))
 	return panelStyle(m.focus == focusPeers).Width(width).Height(height).Render(sb.String())
 }
