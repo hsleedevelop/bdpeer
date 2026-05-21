@@ -29,7 +29,7 @@ builds:
         # ad-hoc 서명 + 임베디드 Info.plist 만으로 TCC Bluetooth 권한 통과 가능.
         - cmd: codesign --force --sign - --timestamp=none "{{ .Path }}"
 
-  # linux + windows: tinygo BLE scan via pure Go (no CGO needed)
+  # linux + windows: tinygo BLE GATT via pure Go (no CGO needed)
   - id: bdpeer-other
     main: ./cmd/bdpeer
     binary: bdpeer

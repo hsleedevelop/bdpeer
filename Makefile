@@ -18,7 +18,7 @@ build-mac:
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o dist/bdpeer-mac-amd64 ./cmd/bdpeer
 	codesign $(CODESIGN_ARGS) dist/bdpeer-mac-amd64
 
-# linux/windows: tinygo BLE scan, CGO not required
+# linux/windows: tinygo BLE GATT, CGO not required
 build-win:
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/bdpeer-windows-amd64.exe ./cmd/bdpeer
 
