@@ -245,7 +245,6 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
                   RSSI:(NSNumber *)RSSI {
     if (_peripherals[p.identifier]) return; // already known
     _peripherals[p.identifier] = p;
-    [cm stopScan];
     [cm connectPeripheral:p options:nil];
 }
 

@@ -263,8 +263,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirmPath != "" {
-		switch strings.ToLower(msg.String()) {
-		case "y":
+		confirmed := msg.Type == tea.KeyEnter || strings.EqualFold(msg.String(), "y")
+		cancelled := strings.EqualFold(msg.String(), "n") || strings.EqualFold(msg.String(), "esc")
+		switch {
+		case confirmed:
 			path := m.confirmPath
 			m.confirmPath = ""
 			var id peer.ID
@@ -276,7 +278,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				default:
 				}
 			}
-		case "n", "esc":
+		case cancelled:
 			m.confirmPath = ""
 		}
 		return m, nil

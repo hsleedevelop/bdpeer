@@ -116,13 +116,18 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 }
 
 // SearchBLE scans for nearby bdpeer peripherals for a bounded window.
-func SearchBLE(_ context.Context, duration time.Duration) error {
+func SearchBLE(ctx context.Context, duration time.Duration) error {
 	seconds := int(duration.Round(time.Second) / time.Second)
 	if seconds <= 0 {
 		seconds = 5
 	}
 	C.ble_scan_for(C.int(seconds))
-	return nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Duration(seconds) * time.Second):
+		return nil
+	}
 }
 
 // ── CGo export callbacks ──────────────────────────────────────────────────────

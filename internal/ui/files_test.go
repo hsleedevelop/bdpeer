@@ -4,9 +4,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/hsleedevelop/bdpeer/internal/core"
 	bnet "github.com/hsleedevelop/bdpeer/internal/net"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func keyRunes(s string) tea.KeyMsg {
@@ -72,6 +75,36 @@ func TestHandleFilesKeyFiltersAndSelectsVisibleFile(t *testing.T) {
 	want := filepath.Join("tmp", "bdpeer", "alpha.txt")
 	if m.confirmPath != want {
 		t.Fatalf("confirmPath = %q, want %q", m.confirmPath, want)
+	}
+}
+
+func TestHandleMainKeyEnterConfirmsFileSend(t *testing.T) {
+	sendCh := make(chan core.SendRequest, 1)
+	peerInfo := bnet.PeerInfo{ID: peer.ID("ble-session"), Nickname: "peer", Source: "ble"}
+	m := Model{
+		screen:      ScreenMain,
+		focus:       focusFiles,
+		activePeer:  &peerInfo,
+		sendCh:      sendCh,
+		confirmPath: filepath.Join("tmp", "bdpeer", "alpha.txt"),
+	}
+
+	next, _ := m.handleMainKey(keyType(tea.KeyEnter))
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("handleMainKey returned %T, want ui.Model", next)
+	}
+	if updated.confirmPath != "" {
+		t.Fatalf("confirmPath = %q, want empty", updated.confirmPath)
+	}
+
+	select {
+	case req := <-sendCh:
+		if req.File != filepath.Join("tmp", "bdpeer", "alpha.txt") {
+			t.Fatalf("req.File = %q, want selected file", req.File)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected file send request")
 	}
 }
 

@@ -73,6 +73,9 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 }
 
 func SearchBLE(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		duration = 5 * time.Second
+	}
 	windowsSearchMu.Lock()
 	if windowsScanning {
 		windowsSearchMu.Unlock()
@@ -96,33 +99,55 @@ func SearchBLE(ctx context.Context, duration time.Duration) error {
 	scanCtx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
-	var found bluetooth.ScanResult
-	foundPeer := false
+	candidates := make(map[string]bluetooth.ScanResult)
+	var candidatesMu sync.Mutex
+	scanDone := make(chan struct{})
+	var scanErr error
 	go func() {
-		<-scanCtx.Done()
-		_ = adapter.StopScan()
+		defer close(scanDone)
+		scanErr = adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
+			select {
+			case <-scanCtx.Done():
+				_ = a.StopScan()
+				return
+			default:
+			}
+			if !isBDPeerAdvertisement(d) {
+				return
+			}
+			if nick := extractBLENickname(d.ManufacturerData()); nick != "unknown" && nick == nickname {
+				return
+			}
+			peerAddr := d.Address.String()
+			if !beginWindowsConnect(peerAddr) {
+				return
+			}
+			candidatesMu.Lock()
+			candidates[peerAddr] = d
+			candidatesMu.Unlock()
+		})
 	}()
-	_ = adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
-		select {
-		case <-scanCtx.Done():
-			_ = a.StopScan()
-			return
-		default:
-		}
-		if !isBDPeerAdvertisement(d) {
-			return
-		}
-		peerAddr := d.Address.String()
-		if !beginWindowsConnect(peerAddr) {
-			return
-		}
-		found = d
-		foundPeer = true
-		_ = a.StopScan()
-	})
 
-	if foundPeer {
-		go connectAndSubscribeWindows(ctx, adapter, found, found.Address.String(), nickname, mgr)
+	<-scanCtx.Done()
+	_ = adapter.StopScan()
+	scanFinished := false
+	select {
+	case <-scanDone:
+		scanFinished = true
+	case <-time.After(2 * time.Second):
+	}
+	if scanFinished && scanErr != nil {
+		return scanErr
+	}
+
+	candidatesMu.Lock()
+	found := make([]bluetooth.ScanResult, 0, len(candidates))
+	for _, d := range candidates {
+		found = append(found, d)
+	}
+	candidatesMu.Unlock()
+	for _, d := range found {
+		go connectAndSubscribeWindows(ctx, adapter, d, d.Address.String(), nickname, mgr)
 	}
 	return nil
 }
@@ -317,7 +342,6 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 	windowsDataCharsMu.Lock()
 	windowsDataChars[remoteSession] = dataChar
 	windowsDataCharsMu.Unlock()
-	notifyWindowsPeerFound(mgr, nick, remoteSession)
 
 	if err := dataChar.EnableNotifications(func(buf []byte) {
 		windowsCentralAssemblerMu.Lock()
@@ -330,6 +354,7 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 		cleanup()
 		return
 	}
+	notifyWindowsPeerFound(mgr, nick, remoteSession)
 }
 
 func isBDPeerAdvertisement(d bluetooth.ScanResult) bool {
