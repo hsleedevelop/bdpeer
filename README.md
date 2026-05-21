@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.15
+VERSION=0.5.16
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -162,7 +162,7 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 
 > **SSDP 자동 연결 (v0.4.3+)**: SSDP 광고에 libp2p peer.ID가 포함되어, 같은 LAN의 Windows/Android 피어가 발견되면 별도 `/connect` 없이도 libp2p로 자동 연결됩니다. 발견 즉시 양방향 텍스트·파일 전송 가능.  
 > **BLE→WebRTC**: macOS에서 `enable_ble_webrtc: true`로 명시 활성화한 경우에만 사용합니다. BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다. v0.3.5부터 ICE gathering 타임아웃 시 연결을 끊지 않고 수집된 candidate로 핸드셰이크를 계속 진행하여 기업망 등 STUN/TURN 응답이 느린 환경에서도 연결 성공률이 향상됩니다. v0.4.3부터 BLE 발견 즉시 사이드바에 잠정 항목으로 표시되어 WebRTC 핸드셰이크 진행 상황을 바로 확인할 수 있습니다.
-> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 기본적으로 BLE GATT만으로 통신합니다. macOS↔Linux도 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. v0.5.14부터 BLE 스캔은 상시 실행하지 않고 `s` 키를 누른 뒤 5초 동안만 실행합니다. v0.5.15부터는 5초 스캔 창 전체를 유지하고 발견 후보를 모두 연결해, 첫 광고 하나 때문에 다른 피어 검색이 중단되지 않습니다. v0.5.2부터 BLE 연결이 중간에 끊어져도 재조립 버퍼가 자동으로 초기화되어 다음 메시지가 오염되지 않습니다(이전 버전에서 `invalid character '\x00'` 에러로 나타나던 frame desync 해결).
+> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 기본적으로 BLE GATT만으로 통신합니다. macOS↔Linux도 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. v0.5.14부터 BLE 스캔은 상시 실행하지 않고 `s` 키를 누른 뒤 5초 동안만 실행합니다. v0.5.15부터는 5초 스캔 창 전체를 유지하고 발견 후보를 모두 연결해, 첫 광고 하나 때문에 다른 피어 검색이 중단되지 않습니다. v0.5.16부터는 BLE synthetic ID의 원문 라우팅 키를 보존해, 목록에는 보이지만 전송 시 `unknown peer`가 나는 문제를 수정했습니다. v0.5.2부터 BLE 연결이 중간에 끊어져도 재조립 버퍼가 자동으로 초기화되어 다음 메시지가 오염되지 않습니다(이전 버전에서 `invalid character '\x00'` 에러로 나타나던 frame desync 해결).
 > **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  

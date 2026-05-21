@@ -423,8 +423,7 @@ func (s *Service) SearchBLE(ctx context.Context, duration time.Duration) error {
 }
 
 func (s *Service) Send(ctx context.Context, req SendRequest) error {
-	peerKey := transport.PeerID(req.To.String())
-	t, ok := s.registry.Lookup(peerKey)
+	peerKey, t, ok := s.lookupTransport(req.To)
 	if !ok {
 		return fmt.Errorf("unknown peer: %s", peerKey)
 	}
@@ -495,6 +494,44 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 	return transfer.WriteFrame(stream, proto.Frame{
 		Type: proto.FrameText, From: s.cfg.Nickname, Content: req.Content,
 	})
+}
+
+func (s *Service) lookupTransport(id peer.ID) (transport.PeerID, transport.Transport, bool) {
+	keys := transportKeysForPeer(id)
+	for _, key := range keys {
+		if t, ok := s.registry.Lookup(key); ok {
+			return key, t, true
+		}
+	}
+	if len(keys) == 0 {
+		return "", nil, false
+	}
+	return keys[0], nil, false
+}
+
+func transportKeysForPeer(id peer.ID) []transport.PeerID {
+	raw := transport.PeerID(string(id))
+	canonical := transport.PeerID(id.String())
+	if strings.HasPrefix(string(raw), "ble-") {
+		return dedupePeerKeys(raw, canonical)
+	}
+	return dedupePeerKeys(canonical, raw)
+}
+
+func dedupePeerKeys(keys ...transport.PeerID) []transport.PeerID {
+	out := make([]transport.PeerID, 0, len(keys))
+	seen := make(map[transport.PeerID]struct{}, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
 }
 
 // listenIP returns a routable IPv4 address from the host's listen multiaddrs,
