@@ -9,7 +9,7 @@ import (
 
 func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &config.Config{Nickname: "alice", DataDir: dir}
+	cfg := &config.Config{Nickname: "alice", DataDir: dir, EnableBLEWebRTC: true}
 
 	if err := cfg.Save(filepath.Join(dir, "config.json")); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -24,6 +24,9 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if loaded.DataDir != dir {
 		t.Errorf("got data dir %q, want %q", loaded.DataDir, dir)
+	}
+	if !loaded.EnableBLEWebRTC {
+		t.Error("expected EnableBLEWebRTC to round-trip")
 	}
 }
 
@@ -44,5 +47,8 @@ func TestLoadMissing(t *testing.T) {
 	}
 	if cfg.Nickname != "" {
 		t.Errorf("expected empty nickname for fresh config")
+	}
+	if cfg.EnableBLEWebRTC {
+		t.Error("expected BLE WebRTC upgrade to default to disabled")
 	}
 }

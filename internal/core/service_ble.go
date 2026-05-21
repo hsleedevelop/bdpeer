@@ -13,11 +13,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// startBLEWithWebRTC wires CoreBluetooth BLE discovery to the BLEWebRTCUpgrader,
-// then starts BLE peripheral+central. When a WebRTC data channel is ready the
-// peer is registered with the Manager and the bdpeer Hello frame is exchanged.
-// BLETransport is registered immediately on peer found as a fallback; it is
-// superseded by WebRTCTransport if the upgrade succeeds.
+// startBLEWithWebRTC wires CoreBluetooth BLE discovery to direct BLE data
+// transfer. If explicitly enabled in config, macOS BLE discovery also starts
+// BLE-signaled WebRTC and lets a ready WebRTC data channel supersede BLE.
 func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager) {
 	// Wire BLE data transport handler — same inbound processor as other transports.
 	s.bleT.SetHandler(s.onInboundStream)
@@ -27,14 +25,19 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 		s.bleT.InboundData(transport.PeerID("ble-"+peerUUID), data)
 	})
 
-	upgrader := bnet.NewBLEWebRTCUpgrader(s.cfg.Nickname)
-	upgrader.OnLog = s.log
-	upgrader.TURNServers = s.cfg.ICEServers()
-	upgrader.SendOfferFn = discovery.BLECentralSendSDP
-	upgrader.SendAnswerFn = discovery.BLEPeripheralSendSDP
+	var upgrader *bnet.BLEWebRTCUpgrader
+	if s.cfg.EnableBLEWebRTC {
+		upgrader = bnet.NewBLEWebRTCUpgrader(s.cfg.Nickname)
+		upgrader.OnLog = s.log
+		upgrader.TURNServers = s.cfg.ICEServers()
+		upgrader.SendOfferFn = discovery.BLECentralSendSDP
+		upgrader.SendAnswerFn = discovery.BLEPeripheralSendSDP
 
-	upgrader.OnConnected = func(peerUUID, peerNickname string, conn *bnet.WebRTCConn) {
-		s.handleWebRTCConn(ctx, peerUUID, peerNickname, conn, mgr)
+		upgrader.OnConnected = func(peerUUID, peerNickname string, conn *bnet.WebRTCConn) {
+			s.handleWebRTCConn(ctx, peerUUID, peerNickname, conn, mgr)
+		}
+	} else {
+		s.log("[BLE] WebRTC 업그레이드 비활성화: BLE 데이터 채널만 사용")
 	}
 
 	discovery.SetBLECallbacks(
@@ -55,11 +58,15 @@ func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager
 			})
 			// Send Hello over BLE so responder gets our nickname.
 			go s.sendBLEHello(ctx, peerKey)
-			// Start WebRTC upgrade — will overwrite BLE in registry if it succeeds.
-			upgrader.OnBLEPeerFound(ctx, nickname, peerUUID)
+			if upgrader != nil {
+				// Start WebRTC upgrade — will overwrite BLE in registry if it succeeds.
+				upgrader.OnBLEPeerFound(ctx, nickname, peerUUID)
+			}
 		},
 		func(peerUUID, sdp string, isOffer bool) {
-			upgrader.OnSDPReceived(ctx, peerUUID, sdp, isOffer)
+			if upgrader != nil {
+				upgrader.OnSDPReceived(ctx, peerUUID, sdp, isOffer)
+			}
 		},
 		func(centralUUID string) {
 			peerKey := transport.PeerID("ble-" + centralUUID)

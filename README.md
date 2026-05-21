@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.12
+VERSION=0.5.13
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -65,6 +65,7 @@ codesign -dv ./bdpeer 2>&1 | grep -E "Identifier|flags"
 최초 실행 시 시스템에서 **"Terminal이/iTerm이 Bluetooth에 접근하려 합니다"** 다이얼로그가 뜹니다. 허용해야 근거리 피어 발견(BLE)이 동작합니다.
 
 - bdpeer는 ad-hoc 코드서명 + 임베디드 Info.plist(`NSBluetoothAlwaysUsageDescription`) 구성으로 배포됩니다. Hardened Runtime은 macOS 26 + Go cgo 조합에서 SIGABRT를 유발해 사용하지 않습니다.
+- v0.5.13부터 macOS는 기본적으로 BLE GATT 데이터 채널만 사용하며, BLE→WebRTC 업그레이드는 `enable_ble_webrtc: true` 설정에서만 활성화됩니다. Windows↔Windows BLE 발견을 위해 v0.5.10의 광고 경로도 복원했습니다.
 - v0.5.12부터 macOS CoreBluetooth 초기화 직후 닉네임 객체 수명 문제로 발생하던 `dataUsingEncoding:` 크래시를 수정했습니다.
 - macOS의 TCC는 child process가 아닌 **호스트 터미널 앱**의 권한을 확인합니다. cmux, tmux 일부 빌드 등 Bluetooth usage description이 없는 터미널 멀티플렉서에서 실행하면 다이얼로그가 뜨지 않고 즉시 종료됩니다. 이 경우 Terminal.app 또는 iTerm2에서 실행해 주세요.
 - 권한 다이얼로그를 거부했거나 동작이 이상하다면: 시스템 설정 → 개인 정보 보호 및 보안 → Bluetooth 에서 사용 중인 터미널 앱을 토글로 켜면 됩니다.
@@ -153,14 +154,14 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 | mDNS/Bonjour (`_bdpeer._tcp`) | macOS, iOS, Android, Windows 10+ | 로컬 Wi-Fi 자동 발견 |
 | SSDP/UPnP | Windows, Android | Windows 네트워크 탐색 |
 | WS-Discovery | Windows | 탐색기 → 네트워크 폴더 표시 |
-| BLE + WebRTC | macOS (기본 내장, CoreBluetooth) | BLE로 발견 → WebRTC로 연결 — **다른 서브넷·NAT 무관** (실패 시 BLE 직접 전송) |
+| BLE GATT | macOS (기본 내장, CoreBluetooth) | BLE 발견 + DataChar로 직접 메시지 송수신. WebRTC 업그레이드는 설정으로 명시 활성화 |
 | BLE GATT | Linux (기본 내장, tinygo) | BLE 발견 + GATT DataChar로 직접 메시지 송수신 |
 | BLE GATT | Windows (기본 내장, tinygo) | BLE GATT로 근거리 발견 + 직접 텍스트 송수신. v0.5.11부터 Windows↔Windows는 `/connect` 없이도 BLE 세션 ID로 라우팅 |
 | libp2p DHT | 인터넷 | 서브넷이 달라도 자동 발견 (시작 후 ~10초) |
 
 > **SSDP 자동 연결 (v0.4.3+)**: SSDP 광고에 libp2p peer.ID가 포함되어, 같은 LAN의 Windows/Android 피어가 발견되면 별도 `/connect` 없이도 libp2p로 자동 연결됩니다. 발견 즉시 양방향 텍스트·파일 전송 가능.  
-> **BLE→WebRTC**: macOS 기본 바이너리에 포함(별도 빌드 불필요). BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다. v0.3.5부터 ICE gathering 타임아웃 시 연결을 끊지 않고 수집된 candidate로 핸드셰이크를 계속 진행하여 기업망 등 STUN/TURN 응답이 느린 환경에서도 연결 성공률이 향상됩니다. v0.4.3부터 BLE 발견 즉시 사이드바에 잠정 항목으로 표시되어 WebRTC 핸드셰이크 진행 상황을 바로 확인할 수 있습니다.  
-> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 WebRTC 업그레이드 전·도중에도 BLE 폴백으로 즉시 통신이 가능하며 WebRTC가 성공하면 자동으로 전환됩니다. macOS↔Linux는 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. 단, BLE 대역폭(~10KB/s) 한계로 파일 전송은 지원하지 않습니다. v0.5.2부터 BLE 연결이 중간에 끊어져도 재조립 버퍼가 자동으로 초기화되어 다음 메시지가 오염되지 않습니다(이전 버전에서 `invalid character '\x00'` 에러로 나타나던 frame desync 해결).  
+> **BLE→WebRTC**: macOS에서 `enable_ble_webrtc: true`로 명시 활성화한 경우에만 사용합니다. BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다. v0.3.5부터 ICE gathering 타임아웃 시 연결을 끊지 않고 수집된 candidate로 핸드셰이크를 계속 진행하여 기업망 등 STUN/TURN 응답이 느린 환경에서도 연결 성공률이 향상됩니다. v0.4.3부터 BLE 발견 즉시 사이드바에 잠정 항목으로 표시되어 WebRTC 핸드셰이크 진행 상황을 바로 확인할 수 있습니다.
+> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 기본적으로 BLE GATT만으로 통신합니다. macOS↔Linux도 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. 단, BLE 대역폭(~10KB/s) 한계로 파일 전송은 지원하지 않습니다. v0.5.2부터 BLE 연결이 중간에 끊어져도 재조립 버퍼가 자동으로 초기화되어 다음 메시지가 오염되지 않습니다(이전 버전에서 `invalid character '\x00'` 에러로 나타나던 frame desync 해결).
 > **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
@@ -168,7 +169,7 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 
 ## TURN 서버 설정 (선택)
 
-BLE→WebRTC는 STUN 실패 시 Open Relay Project TURN 서버를 자동으로 사용합니다. 자체 TURN 서버(coturn 등)를 사용하려면 config 파일에 추가하세요.
+BLE→WebRTC를 활성화하면 STUN 실패 시 Open Relay Project TURN 서버를 자동으로 사용합니다. 자체 TURN 서버(coturn 등)를 사용하려면 config 파일에 추가하세요.
 
 **config 파일 경로**
 
@@ -181,6 +182,7 @@ BLE→WebRTC는 STUN 실패 시 Open Relay Project TURN 서버를 자동으로 �
 ```json
 {
   "nickname": "alice",
+  "enable_ble_webrtc": true,
   "turn_servers": [
     {
       "url": "turn:my-coturn.example.com:3478",

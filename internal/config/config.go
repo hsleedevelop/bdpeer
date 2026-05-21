@@ -24,12 +24,15 @@ var DefaultTURNServers = []TURNServer{
 }
 
 type Config struct {
-	Nickname      string       `json:"nickname"`
-	DataDir       string       `json:"data_dir"`
-	PrivateKeyB64 string       `json:"private_key_b64,omitempty"`
+	Nickname      string `json:"nickname"`
+	DataDir       string `json:"data_dir"`
+	PrivateKeyB64 string `json:"private_key_b64,omitempty"`
+	// EnableBLEWebRTC allows macOS BLE discovery to upgrade the data path to WebRTC.
+	// Keep false when BLE must be the only cross-network channel.
+	EnableBLEWebRTC bool `json:"enable_ble_webrtc,omitempty"`
 	// TURNServers overrides the built-in Open Relay servers when non-empty.
 	// Set to your own coturn instance for full privacy.
-	TURNServers   []TURNServer `json:"turn_servers,omitempty"`
+	TURNServers []TURNServer `json:"turn_servers,omitempty"`
 }
 
 // ICEServers returns the TURN servers to use: custom if configured, otherwise defaults.

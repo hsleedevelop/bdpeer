@@ -327,7 +327,7 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 					ID:       peer.ID(string(from)),
 					Nickname: frame.From,
 					Addr:     peerUUID,
-					Source:   "ble→webrtc",
+					Source:   s.sourceForBLEPeer(from),
 				})
 			}
 
@@ -357,6 +357,13 @@ func (s *Service) onInboundStream(from transport.PeerID, stream io.ReadWriteClos
 			s.deliverAck(frame.TransferID, frame.AckErr)
 		}
 	}
+}
+
+func (s *Service) sourceForBLEPeer(peerKey transport.PeerID) string {
+	if t, ok := s.registry.Lookup(peerKey); ok && t.Name() == "webrtc" {
+		return "ble→webrtc"
+	}
+	return "ble"
 }
 
 // sendFileAck writes a FILE_ACK frame back to the sender of a completed (or
