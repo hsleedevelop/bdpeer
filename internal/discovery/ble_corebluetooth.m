@@ -69,7 +69,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 
 - (instancetype)initWithNickname:(NSString *)nickname {
     if (!(self = [super init])) return nil;
-    _myNickname         = nickname;
+    _myNickname         = [nickname copy];
     _subscribedCentrals = [NSMutableSet new];
     _centralSDPBufs     = [NSMutableDictionary new];
     _centralDataBufs    = [NSMutableDictionary new];

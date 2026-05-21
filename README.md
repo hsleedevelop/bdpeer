@@ -41,7 +41,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.11
+VERSION=0.5.12
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -65,6 +65,7 @@ codesign -dv ./bdpeer 2>&1 | grep -E "Identifier|flags"
 최초 실행 시 시스템에서 **"Terminal이/iTerm이 Bluetooth에 접근하려 합니다"** 다이얼로그가 뜹니다. 허용해야 근거리 피어 발견(BLE)이 동작합니다.
 
 - bdpeer는 ad-hoc 코드서명 + 임베디드 Info.plist(`NSBluetoothAlwaysUsageDescription`) 구성으로 배포됩니다. Hardened Runtime은 macOS 26 + Go cgo 조합에서 SIGABRT를 유발해 사용하지 않습니다.
+- v0.5.12부터 macOS CoreBluetooth 초기화 직후 닉네임 객체 수명 문제로 발생하던 `dataUsingEncoding:` 크래시를 수정했습니다.
 - macOS의 TCC는 child process가 아닌 **호스트 터미널 앱**의 권한을 확인합니다. cmux, tmux 일부 빌드 등 Bluetooth usage description이 없는 터미널 멀티플렉서에서 실행하면 다이얼로그가 뜨지 않고 즉시 종료됩니다. 이 경우 Terminal.app 또는 iTerm2에서 실행해 주세요.
 - 권한 다이얼로그를 거부했거나 동작이 이상하다면: 시스템 설정 → 개인 정보 보호 및 보안 → Bluetooth 에서 사용 중인 터미널 앱을 토글로 켜면 됩니다.
 
