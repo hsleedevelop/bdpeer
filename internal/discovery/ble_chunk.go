@@ -1,9 +1,11 @@
 package discovery
 
 const (
-	bleChunkHdr  = 5
-	bleChunkBody = 490
-	bleDataType  = 'D'
+	bleChunkHdr         = 5
+	bleSessionChunkMeta = 2
+	bleChunkBody        = 490
+	bleDataType         = 'D'
+	bleSessionDataType  = 'S'
 )
 
 // MakeDataChunks splits data into BLE chunk frames for DataChar transmission.
@@ -83,4 +85,117 @@ func (a *ChunkAssembler) Feed(peerKey string, chunk []byte) ([]byte, bool) {
 // Call when a peer disconnects to prevent stale buffer accumulation.
 func (a *ChunkAssembler) Reset(peerKey string) {
 	delete(a.bufs, peerKey)
+}
+
+// MakeSessionDataChunks splits data into BLE chunk frames carrying explicit
+// sender and recipient session IDs. This lets platforms that can only
+// broadcast notifications filter messages locally.
+func MakeSessionDataChunks(fromSession, toSession string, data []byte) [][]byte {
+	from := []byte(fromSession)
+	to := []byte(toSession)
+	if len(from) > 255 || len(to) > 255 {
+		return nil
+	}
+	payloadLimit := bleChunkBody - bleSessionChunkMeta - len(from) - len(to)
+	if payloadLimit <= 0 {
+		return nil
+	}
+	total := (len(data) + payloadLimit - 1) / payloadLimit
+	if total == 0 {
+		total = 1
+	}
+	chunks := make([][]byte, total)
+	for i := 0; i < total; i++ {
+		offset := i * payloadLimit
+		end := offset + payloadLimit
+		if end > len(data) {
+			end = len(data)
+		}
+		payload := data[offset:end]
+		chunk := make([]byte, bleChunkHdr+bleSessionChunkMeta+len(from)+len(to)+len(payload))
+		chunk[0] = bleSessionDataType
+		chunk[1] = byte(uint16(i) >> 8)
+		chunk[2] = byte(uint16(i))
+		chunk[3] = byte(uint16(total) >> 8)
+		chunk[4] = byte(uint16(total))
+		chunk[5] = byte(len(from))
+		chunk[6] = byte(len(to))
+		pos := bleChunkHdr + bleSessionChunkMeta
+		copy(chunk[pos:], from)
+		pos += len(from)
+		copy(chunk[pos:], to)
+		pos += len(to)
+		copy(chunk[pos:], payload)
+		chunks[i] = chunk
+	}
+	return chunks
+}
+
+// SessionChunkAssembler reassembles session-addressed BLE chunks by sender.
+// Not goroutine-safe — the caller must serialize Feed calls per instance.
+type SessionChunkAssembler struct {
+	bufs map[string][]byte
+}
+
+func NewSessionChunkAssembler() *SessionChunkAssembler {
+	return &SessionChunkAssembler{bufs: make(map[string][]byte)}
+}
+
+// Feed processes one raw session BLE chunk. It returns the sender session ID,
+// assembled data, and done=true only when the chunk targets localSession and a
+// full message has been reassembled.
+func (a *SessionChunkAssembler) Feed(localSession string, chunk []byte) (string, []byte, bool) {
+	from, to, idx, total, payload, ok := parseSessionChunk(chunk)
+	if !ok {
+		return "", nil, false
+	}
+	if to != localSession {
+		return "", nil, false
+	}
+	if total == 0 {
+		return "", nil, false
+	}
+	if idx != 0 {
+		if _, ok := a.bufs[from]; !ok {
+			return "", nil, false
+		}
+	}
+	if idx == 0 {
+		a.bufs[from] = make([]byte, 0, int(total)*bleChunkBody)
+	}
+	a.bufs[from] = append(a.bufs[from], payload...)
+	if idx == total-1 {
+		result := a.bufs[from]
+		delete(a.bufs, from)
+		return from, result, true
+	}
+	return "", nil, false
+}
+
+func (a *SessionChunkAssembler) Reset(sessionID string) {
+	delete(a.bufs, sessionID)
+}
+
+func parseSessionChunk(chunk []byte) (from, to string, idx, total uint16, payload []byte, ok bool) {
+	if len(chunk) < bleChunkHdr+bleSessionChunkMeta {
+		return "", "", 0, 0, nil, false
+	}
+	if chunk[0] != bleSessionDataType {
+		return "", "", 0, 0, nil, false
+	}
+	idx = uint16(chunk[1])<<8 | uint16(chunk[2])
+	total = uint16(chunk[3])<<8 | uint16(chunk[4])
+	fromLen := int(chunk[5])
+	toLen := int(chunk[6])
+	metaLen := bleChunkHdr + bleSessionChunkMeta + fromLen + toLen
+	if total == 0 || fromLen == 0 || toLen == 0 || len(chunk) < metaLen {
+		return "", "", 0, 0, nil, false
+	}
+	pos := bleChunkHdr + bleSessionChunkMeta
+	from = string(chunk[pos : pos+fromLen])
+	pos += fromLen
+	to = string(chunk[pos : pos+toLen])
+	pos += toLen
+	payload = chunk[pos:]
+	return from, to, idx, total, payload, true
 }

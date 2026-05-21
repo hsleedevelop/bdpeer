@@ -4,6 +4,8 @@ package discovery
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -18,14 +20,17 @@ var (
 	windowsCallbacksMu sync.Mutex
 	windowsPeerFoundCb func(nickname, peerUUID string)
 
-	windowsDataCharsMu sync.RWMutex
-	windowsDataChars   = map[string]bluetooth.DeviceCharacteristic{}
-	windowsDefaultPeer string
+	windowsSessionID string
+
+	windowsDataCharsMu  sync.RWMutex
+	windowsDataChars    = map[string]bluetooth.DeviceCharacteristic{}
+	windowsConnectingMu sync.Mutex
+	windowsConnecting   = map[string]struct{}{}
 
 	windowsPeripheralMu        sync.Mutex
 	windowsPeripheralDataChar  bluetooth.Characteristic
-	windowsPeripheralAssembler = NewChunkAssembler()
-	windowsCentralAssembler    = NewChunkAssembler()
+	windowsPeripheralAssembler = NewSessionChunkAssembler()
+	windowsCentralAssembler    = NewSessionChunkAssembler()
 	windowsCentralAssemblerMu  sync.Mutex
 
 	windowsSuppressMu          sync.Mutex
@@ -36,6 +41,7 @@ var (
 	bleServiceUUID  = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x01, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
 	bleNickCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x02, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
 	bleDataCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x04, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	bleSessCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x05, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
 )
 
 func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
@@ -43,6 +49,7 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := adapter.Enable(); err != nil {
 		return fmt.Errorf("BLE enable (ensure Bluetooth is on): %w", err)
 	}
+	windowsSessionID = newWindowsSessionID()
 
 	if err := addWindowsService(adapter, nickname); err != nil {
 		return err
@@ -82,25 +89,26 @@ func SetBLEDataCallback(onData func(peerUUID string, data []byte)) {
 	windowsDataMu.Unlock()
 }
 
-func BLEPeripheralSendDataTo(_ string, data []byte) {
+func BLEPeripheralSendDataTo(peerSessionID string, data []byte) {
 	windowsPeripheralMu.Lock()
 	char := windowsPeripheralDataChar
 	windowsPeripheralMu.Unlock()
-	for _, chunk := range MakeDataChunks(data) {
+	for _, chunk := range MakeSessionDataChunks(windowsSessionID, peerSessionID, data) {
 		suppressNextWindowsLocalWrite()
 		char.Write(chunk)
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-func BLECentralSendData(peripheralUUID string, data []byte) {
+func BLECentralSendData(peerSessionID string, data []byte) {
 	windowsDataCharsMu.RLock()
-	char, ok := windowsDataChars[peripheralUUID]
+	char, ok := windowsDataChars[peerSessionID]
 	windowsDataCharsMu.RUnlock()
 	if !ok {
+		BLEPeripheralSendDataTo(peerSessionID, data)
 		return
 	}
-	for _, chunk := range MakeDataChunks(data) {
+	for _, chunk := range MakeSessionDataChunks(windowsSessionID, peerSessionID, data) {
 		char.WriteWithoutResponse(chunk)
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -117,6 +125,11 @@ func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 				Flags: bluetooth.CharacteristicReadPermission,
 			},
 			{
+				UUID:  bleSessCharUUID,
+				Value: []byte(windowsSessionID),
+				Flags: bluetooth.CharacteristicReadPermission,
+			},
+			{
 				Handle: &dataChar,
 				UUID:   bleDataCharUUID,
 				Flags: bluetooth.CharacteristicWriteWithoutResponsePermission |
@@ -126,12 +139,11 @@ func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 					if consumeWindowsLocalWriteSuppression() {
 						return
 					}
-					peerKey := currentWindowsDefaultPeer()
 					windowsPeripheralMu.Lock()
-					assembled, done := windowsPeripheralAssembler.Feed(peerKey, value)
+					fromSession, assembled, done := windowsPeripheralAssembler.Feed(windowsSessionID, value)
 					windowsPeripheralMu.Unlock()
 					if done {
-						emitWindowsData(peerKey, assembled)
+						emitWindowsData(fromSession, assembled)
 					}
 				},
 			},
@@ -147,28 +159,32 @@ func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 }
 
 func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter, d bluetooth.ScanResult, peerAddr, localNickname string, mgr *Manager) {
-	windowsDataCharsMu.Lock()
-	_, already := windowsDataChars[peerAddr]
+	windowsConnectingMu.Lock()
+	_, already := windowsConnecting[peerAddr]
 	if !already {
-		windowsDataChars[peerAddr] = bluetooth.DeviceCharacteristic{}
+		windowsConnecting[peerAddr] = struct{}{}
 	}
-	windowsDataCharsMu.Unlock()
+	windowsConnectingMu.Unlock()
 	if already {
 		return
 	}
 
+	var remoteSession string
 	cleanup := func() {
-		windowsDataCharsMu.Lock()
-		delete(windowsDataChars, peerAddr)
-		if windowsDefaultPeer == peerAddr {
-			windowsDefaultPeer = ""
+		windowsConnectingMu.Lock()
+		delete(windowsConnecting, peerAddr)
+		windowsConnectingMu.Unlock()
+		if remoteSession == "" {
+			return
 		}
+		windowsDataCharsMu.Lock()
+		delete(windowsDataChars, remoteSession)
 		windowsDataCharsMu.Unlock()
 		windowsCentralAssemblerMu.Lock()
-		windowsCentralAssembler.Reset(peerAddr)
+		windowsCentralAssembler.Reset(remoteSession)
 		windowsCentralAssemblerMu.Unlock()
 		windowsPeripheralMu.Lock()
-		windowsPeripheralAssembler.Reset(peerAddr)
+		windowsPeripheralAssembler.Reset(remoteSession)
 		windowsPeripheralMu.Unlock()
 	}
 
@@ -188,7 +204,7 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 		cleanup()
 		return
 	}
-	chars, err := srvcs[0].DiscoverCharacteristics([]bluetooth.UUID{bleNickCharUUID, bleDataCharUUID})
+	chars, err := srvcs[0].DiscoverCharacteristics(nil)
 	if err != nil {
 		cleanup()
 		return
@@ -207,29 +223,36 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 			if err == nil && n > 0 {
 				nick = string(buf[:n])
 			}
+		case bleSessCharUUID:
+			buf := make([]byte, 64)
+			n, err := c.Read(buf)
+			if err == nil && n > 0 {
+				remoteSession = string(buf[:n])
+			}
 		case bleDataCharUUID:
 			dataChar = c
 		}
 	}
 
-	if nick == "" || nick == "unknown" || nick == localNickname || dataChar.UUID() == (bluetooth.UUID{}) {
+	if nick == "" || nick == "unknown" || nick == localNickname ||
+		remoteSession == "" || remoteSession == windowsSessionID ||
+		dataChar.UUID() == (bluetooth.UUID{}) {
 		cleanup()
 		_ = dev.Disconnect()
 		return
 	}
 
 	windowsDataCharsMu.Lock()
-	windowsDataChars[peerAddr] = dataChar
-	windowsDefaultPeer = peerAddr
+	windowsDataChars[remoteSession] = dataChar
 	windowsDataCharsMu.Unlock()
-	notifyWindowsPeerFound(mgr, nick, peerAddr)
+	notifyWindowsPeerFound(mgr, nick, remoteSession)
 
 	if err := dataChar.EnableNotifications(func(buf []byte) {
 		windowsCentralAssemblerMu.Lock()
-		assembled, done := windowsCentralAssembler.Feed(peerAddr, buf)
+		fromSession, assembled, done := windowsCentralAssembler.Feed(windowsSessionID, buf)
 		windowsCentralAssemblerMu.Unlock()
 		if done {
-			emitWindowsData(peerAddr, assembled)
+			emitWindowsData(fromSession, assembled)
 		}
 	}); err != nil {
 		cleanup()
@@ -267,16 +290,6 @@ func emitWindowsData(peerUUID string, data []byte) {
 	}
 }
 
-func currentWindowsDefaultPeer() string {
-	windowsDataCharsMu.RLock()
-	peer := windowsDefaultPeer
-	windowsDataCharsMu.RUnlock()
-	if peer == "" {
-		return "peripheral"
-	}
-	return peer
-}
-
 func suppressNextWindowsLocalWrite() {
 	windowsSuppressMu.Lock()
 	windowsSuppressLocalWrites++
@@ -291,6 +304,14 @@ func consumeWindowsLocalWriteSuppression() bool {
 	}
 	windowsSuppressLocalWrites--
 	return true
+}
+
+func newWindowsSessionID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("%016x", time.Now().UnixNano())
 }
 
 func extractBLENickname(data []bluetooth.ManufacturerDataElement) string {
