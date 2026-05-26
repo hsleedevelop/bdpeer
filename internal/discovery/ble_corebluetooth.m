@@ -3,6 +3,7 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
+#include <stdlib.h>
 #include "ble_corebluetooth.h"
 
 // Forward-declare Go callbacks (defined via //export in ble_darwin.go).
@@ -26,6 +27,13 @@ static CBUUID *dataUUID(void) { return [CBUUID UUIDWithString:kDataCharUUIDStr];
 static void bd_ble_log(NSString *msg) {
     if (!msg) return;
     go_ble_log([msg UTF8String]);
+}
+
+static int bd_startup_scan_seconds(void) {
+    const char *raw = getenv("BDPEER_DARWIN_BLE_STARTUP_SCAN_SECONDS");
+    if (!raw || raw[0] == '\0') return 0;
+    int seconds = atoi(raw);
+    return seconds > 0 ? seconds : 0;
 }
 
 // ── Chunk protocol ────────────────────────────────────────────────────────────
@@ -72,6 +80,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *notifiedPeripheralNames;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
+@property (nonatomic, assign) BOOL startupScanStarted;
 
 @end
 
@@ -260,7 +269,19 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 // ── Central ───────────────────────────────────────────────────────────────────
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)cm {
-    // Scanning is intentionally user-triggered via ble_scan_for.
+    if (cm.state != CBManagerStatePoweredOn) {
+        bd_ble_log([NSString stringWithFormat:@"central state not powered: %ld", (long)cm.state]);
+        return;
+    }
+
+    int seconds = bd_startup_scan_seconds();
+    if (seconds <= 0 || _startupScanStarted) return;
+    _startupScanStarted = YES;
+    bd_ble_log([NSString stringWithFormat:@"startup scan enabled for %d seconds", seconds]);
+    [self startCentralScan];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)seconds * NSEC_PER_SEC), _bleQueue, ^{
+        [_centralMgr stopScan];
+    });
 }
 
 - (void)startCentralScan {
@@ -269,9 +290,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         return;
     }
     bd_ble_log(@"scan started");
-    [_centralMgr scanForPeripheralsWithServices:@[svcUUID()] options:@{
-        CBCentralManagerScanOptionAllowDuplicatesKey: @YES
-    }];
+    [_centralMgr scanForPeripheralsWithServices:@[svcUUID()] options:nil];
 }
 
 - (void)markPeripheralUnready:(NSUUID *)identifier {
@@ -345,11 +364,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         CBPeripheral *current = _peripherals[identifier];
         if (!current) return;
         if (current.state == CBPeripheralStateConnecting) {
-            bd_ble_log([NSString stringWithFormat:@"connect timeout; retry later: %@ (%@)", label, uuid]);
-            [_centralMgr cancelPeripheralConnection:current];
-            [self markPeripheralUnready:identifier];
-            [_peripheralNames removeObjectForKey:uuid];
-            [_peripherals removeObjectForKey:identifier];
+            bd_ble_log([NSString stringWithFormat:@"connect timeout; waiting for OS callback: %@ (%@)", label, uuid]);
         } else if (current.state == CBPeripheralStateConnected) {
             [_connectingPeripheralIDs removeObject:uuid];
             [current discoverServices:@[svcUUID()]];
@@ -379,14 +394,6 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     if (existing) {
         NSString *knownName = ad[CBAdvertisementDataLocalNameKey] ?: existing.name ?: @"unknown";
         [self rememberAdvertisedName:knownName forPeripheral:existing];
-        if (existing.state == CBPeripheralStateConnected) {
-            [existing discoverServices:@[svcUUID()]];
-        } else if (existing.state == CBPeripheralStateDisconnected ||
-                   existing.state == CBPeripheralStateDisconnecting) {
-            [self markPeripheralUnready:p.identifier];
-            _peripherals[p.identifier] = p;
-            [self connectPeripheral:p name:knownName central:cm];
-        }
         return;
     }
     _peripherals[p.identifier] = p;
