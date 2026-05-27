@@ -78,6 +78,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableSet<NSString *> *connectingPeripheralIDs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *peripheralNames;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *notifiedPeripheralNames;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *connectRetryCounts;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *serviceDiscoveryRetryCounts;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
 @property (nonatomic, assign) BOOL startupScanStarted;
@@ -98,6 +100,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
     _connectingPeripheralIDs = [NSMutableSet new];
     _peripheralNames    = [NSMutableDictionary new];
     _notifiedPeripheralNames = [NSMutableDictionary new];
+    _connectRetryCounts = [NSMutableDictionary new];
+    _serviceDiscoveryRetryCounts = [NSMutableDictionary new];
     _peripheralSDPBufs  = [NSMutableDictionary new];
     _peripheralDataBufs = [NSMutableDictionary new];
     return self;
@@ -301,12 +305,17 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     [_peripheralSDPBufs  removeObjectForKey:uuid];
     [_peripheralDataBufs removeObjectForKey:uuid];
     [_notifiedPeripheralNames removeObjectForKey:uuid];
+    [_connectRetryCounts removeObjectForKey:uuid];
+    [_serviceDiscoveryRetryCounts removeObjectForKey:uuid];
 }
 
 - (void)dropPeripheral:(CBPeripheral *)p reason:(NSString *)reason {
     if (!p) return;
     NSString *uuid = p.identifier.UUIDString;
     bd_ble_log([NSString stringWithFormat:@"%@: %@ state=%ld", reason ?: @"drop peripheral", uuid, (long)p.state]);
+    if (p.state == CBPeripheralStateConnected || p.state == CBPeripheralStateConnecting) {
+        [_centralMgr cancelPeripheralConnection:p];
+    }
     [self markPeripheralUnready:p.identifier];
     [_peripheralNames removeObjectForKey:uuid];
     [_peripherals removeObjectForKey:p.identifier];
@@ -405,13 +414,30 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 
 - (void)centralManager:(CBCentralManager *)cm didConnectPeripheral:(CBPeripheral *)p {
     [_connectingPeripheralIDs removeObject:p.identifier.UUIDString];
+    [_connectRetryCounts removeObjectForKey:p.identifier.UUIDString];
     bd_ble_log([NSString stringWithFormat:@"connected peripheral: %@", p.identifier.UUIDString]);
     p.delegate = self;
     [p discoverServices:@[svcUUID()]];
 }
 
 - (void)centralManager:(CBCentralManager *)cm didFailToConnectPeripheral:(CBPeripheral *)p error:(NSError *)e {
-    bd_ble_log([NSString stringWithFormat:@"connect failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @""]);
+    NSString *uuid = p.identifier.UUIDString;
+    bd_ble_log([NSString stringWithFormat:@"connect failed: %@ %@", uuid, e.localizedDescription ?: @""]);
+    NSInteger attempts = [_connectRetryCounts[uuid] integerValue];
+    if (attempts < 1) {
+        _connectRetryCounts[uuid] = @(attempts + 1);
+        [_connectingPeripheralIDs removeObject:uuid];
+        bd_ble_log([NSString stringWithFormat:@"connect retry scheduled: %@ attempt=%ld", uuid, (long)(attempts + 1)]);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1 * NSEC_PER_SEC), _bleQueue, ^{
+            if ([_readyPeripheralIDs containsObject:uuid]) return;
+            CBPeripheral *current = _peripherals[p.identifier] ?: p;
+            if (current.state != CBPeripheralStateDisconnected) return;
+            _peripherals[p.identifier] = current;
+            NSString *name = _peripheralNames[uuid] ?: current.name ?: @"unknown";
+            [self connectPeripheral:current name:name central:cm];
+        });
+        return;
+    }
     [self dropPeripheral:p reason:@"connect failed"];
 }
 
@@ -424,11 +450,30 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 }
 
 - (void)peripheral:(CBPeripheral *)p didDiscoverServices:(NSError *)e {
-    if (e || p.services.count == 0) {
+    NSString *uuid = p.identifier.UUIDString;
+    if (e) {
         bd_ble_log([NSString stringWithFormat:@"service discovery failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @"no services"]);
         [self dropPeripheral:p reason:@"service discovery failed"];
         return;
     }
+    if (p.services.count == 0) {
+        NSInteger attempts = [_serviceDiscoveryRetryCounts[uuid] integerValue];
+        if (attempts < 1 && p.state == CBPeripheralStateConnected) {
+            _serviceDiscoveryRetryCounts[uuid] = @(attempts + 1);
+            bd_ble_log([NSString stringWithFormat:@"service discovery empty; retry scheduled: %@ attempt=%ld", uuid, (long)(attempts + 1)]);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1 * NSEC_PER_SEC), _bleQueue, ^{
+                CBPeripheral *current = _peripherals[p.identifier];
+                if (current.state == CBPeripheralStateConnected) {
+                    [current discoverServices:@[svcUUID()]];
+                }
+            });
+            return;
+        }
+        bd_ble_log([NSString stringWithFormat:@"service discovery failed: %@ no services", uuid]);
+        [self dropPeripheral:p reason:@"service discovery failed"];
+        return;
+    }
+    [_serviceDiscoveryRetryCounts removeObjectForKey:uuid];
     for (CBService *s in p.services)
         [p discoverCharacteristics:@[nickUUID(), sdpUUID(), dataUUID()] forService:s];
 }
