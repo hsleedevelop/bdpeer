@@ -83,6 +83,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
 @property (nonatomic, assign) BOOL startupScanStarted;
+@property (nonatomic, assign) BOOL recoveryScanScheduled;
 
 @end
 
@@ -321,6 +322,22 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     [_peripherals removeObjectForKey:p.identifier];
 }
 
+- (void)scheduleRecoveryScan:(NSString *)reason {
+    if (_recoveryScanScheduled || _centralMgr.state != CBManagerStatePoweredOn) return;
+    _recoveryScanScheduled = YES;
+    bd_ble_log([NSString stringWithFormat:@"recovery scan scheduled: %@", reason ?: @"unknown"]);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1 * NSEC_PER_SEC), _bleQueue, ^{
+        if (_centralMgr.state == CBManagerStatePoweredOn) {
+            [self startCentralScan];
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)3 * NSEC_PER_SEC), _bleQueue, ^{
+            [_centralMgr stopScan];
+            _recoveryScanScheduled = NO;
+            bd_ble_log(@"recovery scan stopped");
+        });
+    });
+}
+
 - (BOOL)isUsableAdvertisedName:(NSString *)name {
     return name && name.length > 0 && ![name isEqualToString:@"unknown"] && ![name isEqualToString:@"Mac"];
 }
@@ -374,6 +391,17 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         if (!current) return;
         if (current.state == CBPeripheralStateConnecting) {
             bd_ble_log([NSString stringWithFormat:@"connect timeout; waiting for OS callback: %@ (%@)", label, uuid]);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)4 * NSEC_PER_SEC), _bleQueue, ^{
+                if (![_connectingPeripheralIDs containsObject:uuid] ||
+                    [_readyPeripheralIDs containsObject:uuid]) {
+                    return;
+                }
+                CBPeripheral *stale = _peripherals[identifier];
+                if (stale && stale.state == CBPeripheralStateConnecting) {
+                    [self dropPeripheral:stale reason:@"connect timeout expired"];
+                    [self scheduleRecoveryScan:@"connect timeout"];
+                }
+            });
         } else if (current.state == CBPeripheralStateConnected) {
             [_connectingPeripheralIDs removeObject:uuid];
             [current discoverServices:@[svcUUID()]];
@@ -454,6 +482,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     if (e) {
         bd_ble_log([NSString stringWithFormat:@"service discovery failed: %@ %@", p.identifier.UUIDString, e.localizedDescription ?: @"no services"]);
         [self dropPeripheral:p reason:@"service discovery failed"];
+        [self scheduleRecoveryScan:@"service discovery failed"];
         return;
     }
     if (p.services.count == 0) {
@@ -471,6 +500,7 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         }
         bd_ble_log([NSString stringWithFormat:@"service discovery failed: %@ no services", uuid]);
         [self dropPeripheral:p reason:@"service discovery failed"];
+        [self scheduleRecoveryScan:@"service discovery empty"];
         return;
     }
     [_serviceDiscoveryRetryCounts removeObjectForKey:uuid];
