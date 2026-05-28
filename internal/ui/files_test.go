@@ -179,8 +179,7 @@ func TestHandleFilesKeyEscClearsAppliedFilter(t *testing.T) {
 }
 
 func TestHandleMainKeyDoesNotConsumeChatRunesAsShortcuts(t *testing.T) {
-	searchCh := make(chan struct{}, 1)
-	m := Model{screen: ScreenMain, focus: focusChat, bleSearchCh: searchCh}
+	m := Model{screen: ScreenMain, focus: focusChat}
 
 	next, _ := m.handleMainKey(keyRunes("s"))
 	updated, ok := next.(Model)
@@ -190,26 +189,17 @@ func TestHandleMainKeyDoesNotConsumeChatRunesAsShortcuts(t *testing.T) {
 	if updated.inputBuf != "s" {
 		t.Fatalf("inputBuf = %q, want s", updated.inputBuf)
 	}
-
-	select {
-	case <-searchCh:
-		t.Fatal("did not expect BLE search request while typing in chat")
-	default:
-	}
 }
 
-func TestHandlePeersKeyRequestsBLESearch(t *testing.T) {
-	searchCh := make(chan struct{}, 1)
-	m := Model{screen: ScreenMain, focus: focusPeers, bleSearchCh: searchCh}
+func TestHandlePeersKeyDoesNotUseSForBLESearch(t *testing.T) {
+	m := Model{screen: ScreenMain, focus: focusPeers}
 
 	next, _ := m.handlePeersKey(keyRunes("s"))
-	if _, ok := next.(Model); !ok {
+	updated, ok := next.(Model)
+	if !ok {
 		t.Fatalf("handlePeersKey returned %T, want ui.Model", next)
 	}
-
-	select {
-	case <-searchCh:
-	default:
-		t.Fatal("expected BLE search request")
+	if updated.focus != focusPeers {
+		t.Fatalf("focus = %v, want peers", updated.focus)
 	}
 }

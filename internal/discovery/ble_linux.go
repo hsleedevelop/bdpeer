@@ -78,10 +78,6 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	return nil
 }
 
-func SearchBLE(_ context.Context, _ time.Duration) error {
-	return nil
-}
-
 func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d bluetooth.ScanResult, peerAddr string, mgr *Manager) {
 	linuxDataCharsMu.Lock()
 	_, already := linuxDataChars[peerAddr]

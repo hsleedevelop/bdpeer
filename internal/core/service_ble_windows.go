@@ -16,6 +16,9 @@ import (
 // Windows does not perform the Darwin BLE->WebRTC upgrade path yet.
 func (s *Service) startBLEWithWebRTC(ctx context.Context, mgr *discovery.Manager) {
 	s.bleT.SetHandler(s.onInboundStream)
+	discovery.SetBLELogCallback(func(msg string) {
+		s.log("[ble] " + msg)
+	})
 
 	attachCentralPeer := func(peerUUID string) transport.PeerID {
 		peerKey := transport.PeerID("ble-" + peerUUID)

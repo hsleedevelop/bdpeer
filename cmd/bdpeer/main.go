@@ -52,7 +52,6 @@ func main() {
 TUI 키 바인딩:
   ↑ / ↓              피어 선택
   Enter               메시지 전송
-  s                   BLE 피어 5초 검색
   Tab                 채팅 ↔ 로그 패널 전환
   Ctrl+C              종료
 
@@ -94,15 +93,14 @@ TUI 커맨드 (입력창):
 	sendCh := make(chan core.SendRequest, 16)
 	nickCh := make(chan string, 1)
 	connectCh := make(chan string, 4)
-	bleSearchCh := make(chan struct{}, 1)
 	if cfg.Nickname != "" {
 		nickCh <- cfg.Nickname
 	}
 
-	model := ui.NewWithChannels(cfg.Nickname, sendCh, nickCh, connectCh, bleSearchCh)
+	model := ui.NewWithChannels(cfg.Nickname, sendCh, nickCh, connectCh).WithVersion(version)
 	prog := tea.NewProgram(model, tea.WithAltScreen())
 
-	go startCoreAfterNickname(ctx, svc, nickCh, sendCh, connectCh, bleSearchCh, prog, cfg, cfgPath)
+	go startCoreAfterNickname(ctx, svc, nickCh, sendCh, connectCh, prog, cfg, cfgPath)
 	go forwardCoreEvents(svc.Events(), prog)
 
 	if _, err := prog.Run(); err != nil {
@@ -119,7 +117,6 @@ func startCoreAfterNickname(
 	nickCh <-chan string,
 	sendCh <-chan core.SendRequest,
 	connectCh <-chan string,
-	bleSearchCh <-chan struct{},
 	prog *tea.Program,
 	cfg *config.Config,
 	cfgPath string,
@@ -159,12 +156,6 @@ func startCoreAfterNickname(
 					prog.Send(ui.MsgError{Err: err})
 				}
 			}(addr)
-		case <-bleSearchCh:
-			go func() {
-				if err := svc.SearchBLE(ctx, 5*time.Second); err != nil {
-					prog.Send(ui.MsgError{Err: err})
-				}
-			}()
 		case <-ctx.Done():
 			return
 		}

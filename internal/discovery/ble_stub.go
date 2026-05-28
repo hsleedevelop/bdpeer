@@ -2,17 +2,10 @@
 
 package discovery
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
 // StartBLE is a no-op when compiled without -tags ble.
 func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
-	return nil
-}
-
-func SearchBLE(_ context.Context, _ time.Duration) error {
 	return nil
 }
 

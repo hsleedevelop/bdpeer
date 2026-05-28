@@ -1,14 +1,11 @@
 #pragma once
 #include <stdint.h>
 
-// Start BLE peripheral advertising. Scanning is explicit via ble_scan_for.
+// Start BLE peripheral advertising and automatic central scanning.
 void ble_start(const char *nickname);
 
 // Stop all BLE operations.
 void ble_stop(void);
-
-// Scan for nearby bdpeer peripherals for a bounded window.
-void ble_scan_for(int seconds);
 
 // Peripheral: send SDP chunks to all subscribed centrals.
 // type: 'A' = answer

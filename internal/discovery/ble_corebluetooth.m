@@ -83,6 +83,7 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
 @property (nonatomic, assign) BOOL startupScanStarted;
+@property (nonatomic, assign) BOOL autoScanContinuous;
 @property (nonatomic, assign) BOOL recoveryScanScheduled;
 
 @end
@@ -279,11 +280,17 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         return;
     }
 
-    int seconds = bd_startup_scan_seconds();
-    if (seconds <= 0 || _startupScanStarted) return;
+    if (_startupScanStarted) return;
     _startupScanStarted = YES;
-    bd_ble_log([NSString stringWithFormat:@"startup scan enabled for %d seconds", seconds]);
+    int seconds = bd_startup_scan_seconds();
+    _autoScanContinuous = seconds <= 0;
+    if (_autoScanContinuous) {
+        bd_ble_log(@"auto scan started");
+    } else {
+        bd_ble_log([NSString stringWithFormat:@"auto scan enabled for %d seconds", seconds]);
+    }
     [self startCentralScan];
+    if (_autoScanContinuous) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)seconds * NSEC_PER_SEC), _bleQueue, ^{
         [_centralMgr stopScan];
     });
@@ -324,6 +331,10 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
 
 - (void)scheduleRecoveryScan:(NSString *)reason {
     if (_recoveryScanScheduled || _centralMgr.state != CBManagerStatePoweredOn) return;
+    if (_autoScanContinuous) {
+        bd_ble_log([NSString stringWithFormat:@"recovery scan skipped; auto scan active: %@", reason ?: @"unknown"]);
+        return;
+    }
     _recoveryScanScheduled = YES;
     bd_ble_log([NSString stringWithFormat:@"recovery scan scheduled: %@", reason ?: @"unknown"]);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1 * NSEC_PER_SEC), _bleQueue, ^{
@@ -707,17 +718,6 @@ void ble_stop(void) {
     [gBLE stop];
     gBLE = nil;
     CFRunLoopStop(CFRunLoopGetCurrent());
-}
-
-void ble_scan_for(int seconds) {
-    if (!gBLE) return;
-    int secs = seconds <= 0 ? 5 : seconds;
-    dispatch_async(gBLE.bleQueue, ^{
-        [gBLE startCentralScan];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)secs * NSEC_PER_SEC), gBLE.bleQueue, ^{
-            [gBLE.centralMgr stopScan];
-        });
-    });
 }
 
 void ble_peripheral_send_sdp(const char *sdp, char sdp_type) {
