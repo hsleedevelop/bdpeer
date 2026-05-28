@@ -66,22 +66,23 @@ type fileXfer struct {
 }
 
 type Model struct {
-	screen      Screen
-	nickname    string
-	localAddr   string
-	peers       []bnet.PeerInfo
-	activePeer  *bnet.PeerInfo
-	messages    []Message
-	logs        []string
-	showLog     bool
-	inputBuf    string
-	width       int
-	height      int
-	err         error
-	fileXfer    *fileXfer
-	sendCh      chan<- core.SendRequest
-	nickCh      chan<- string
-	connectCh   chan<- string
+	screen     Screen
+	nickname   string
+	appVersion string
+	localAddr  string
+	peers      []bnet.PeerInfo
+	activePeer *bnet.PeerInfo
+	messages   []Message
+	logs       []string
+	showLog    bool
+	inputBuf   string
+	width      int
+	height     int
+	err        error
+	fileXfer   *fileXfer
+	sendCh     chan<- core.SendRequest
+	nickCh     chan<- string
+	connectCh  chan<- string
 
 	focus         focusArea
 	fileCwd       string
@@ -129,6 +130,18 @@ func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh cha
 	m.nickCh = nickCh
 	m.connectCh = connectCh
 	return m
+}
+
+func (m Model) WithVersion(version string) Model {
+	m.appVersion = strings.TrimSpace(version)
+	return m
+}
+
+func (m Model) appTitle() string {
+	if m.appVersion == "" {
+		return "bdpeer"
+	}
+	return "bdpeer " + m.appVersion
 }
 
 // refreshSendTarget returns the active peer's current ID after re-resolving
@@ -246,7 +259,7 @@ func mainView(m Model) string {
 		Width(m.width).
 		Foreground(colorPrimary).
 		Bold(true).
-		Render(fmt.Sprintf(" bdpeer  [%s]%s%s%s", m.nickname, addrHint, logToggle, focusHint))
+		Render(fmt.Sprintf(" %s  [%s]%s%s%s", m.appTitle(), m.nickname, addrHint, logToggle, focusHint))
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top, left, mid, right)
 	return title + "\n" + row

@@ -17,7 +17,7 @@ func setupView(m Model) string {
 		Width(40)
 
 	content := strings.Join([]string{
-		StyleTitle.Render("bdpeer"),
+		StyleTitle.Render(m.appTitle()),
 		"",
 		StyleHelp.Render("P2P file & message sharing"),
 		"",

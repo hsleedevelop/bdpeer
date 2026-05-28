@@ -178,6 +178,30 @@ func TestHandleFilesKeyEscClearsAppliedFilter(t *testing.T) {
 	}
 }
 
+func TestMainViewRendersAppVersion(t *testing.T) {
+	m := New("chad").WithVersion("v1.2.3")
+	m.width = 80
+	m.height = 20
+
+	got := mainView(m)
+
+	if !strings.Contains(got, "bdpeer v1.2.3") {
+		t.Fatalf("mainView() did not render app version:\n%s", got)
+	}
+}
+
+func TestSetupViewRendersAppVersion(t *testing.T) {
+	m := New("").WithVersion("v1.2.3")
+	m.width = 80
+	m.height = 20
+
+	got := setupView(m)
+
+	if !strings.Contains(got, "bdpeer v1.2.3") {
+		t.Fatalf("setupView() did not render app version:\n%s", got)
+	}
+}
+
 func TestHandleMainKeyDoesNotConsumeChatRunesAsShortcuts(t *testing.T) {
 	m := Model{screen: ScreenMain, focus: focusChat}
 
