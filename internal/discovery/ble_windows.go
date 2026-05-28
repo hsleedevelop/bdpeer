@@ -91,34 +91,82 @@ func startWindowsAdvertisement(ctx context.Context, adapter *bluetooth.Adapter, 
 
 func scanWindowsBLE(ctx context.Context, adapter *bluetooth.Adapter, nickname string, mgr *Manager) {
 	logWindowsBLE("auto scan started")
-	go func() {
-		<-ctx.Done()
-		_ = adapter.StopScan()
-	}()
-	err := adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
-		select {
-		case <-ctx.Done():
-			_ = a.StopScan()
-			return
-		default:
+	for ctx.Err() == nil {
+		found, err := scanWindowsBLEWindow(ctx, adapter, nickname, 5*time.Second)
+		if err != nil && ctx.Err() == nil {
+			logWindowsBLE("auto scan failed: %v", err)
+			time.Sleep(time.Second)
+			continue
 		}
-		if !isBDPeerAdvertisement(d) {
-			return
+		for _, d := range found {
+			if ctx.Err() != nil {
+				return
+			}
+			peerAddr := d.Address.String()
+			if !beginWindowsConnect(peerAddr) {
+				continue
+			}
+			connectAndSubscribeWindows(ctx, adapter, d, peerAddr, nickname, mgr)
 		}
-		if nick := extractBLENickname(d.ManufacturerData()); nick != "unknown" && nick == nickname {
-			logWindowsBLE("scan skipped self advertisement: %s", nick)
-			return
-		}
-		peerAddr := d.Address.String()
-		if !beginWindowsConnect(peerAddr) {
-			return
-		}
-		logWindowsBLE("scan candidate: addr=%s name=%s", peerAddr, d.LocalName())
-		go connectAndSubscribeWindows(ctx, adapter, d, peerAddr, nickname, mgr)
-	})
-	if err != nil && ctx.Err() == nil {
-		logWindowsBLE("auto scan failed: %v", err)
 	}
+}
+
+func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickname string, duration time.Duration) ([]bluetooth.ScanResult, error) {
+	scanCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	candidates := make(map[string]bluetooth.ScanResult)
+	var candidatesMu sync.Mutex
+	scanDone := make(chan error, 1)
+
+	go func() {
+		scanDone <- adapter.Scan(func(a *bluetooth.Adapter, d bluetooth.ScanResult) {
+			select {
+			case <-scanCtx.Done():
+				_ = a.StopScan()
+				return
+			default:
+			}
+			if !isBDPeerAdvertisement(d) {
+				return
+			}
+			if nick := extractBLENickname(d.ManufacturerData()); nick != "unknown" && nick == nickname {
+				logWindowsBLE("scan skipped self advertisement: %s", nick)
+				return
+			}
+			peerAddr := d.Address.String()
+			candidatesMu.Lock()
+			if _, seen := candidates[peerAddr]; !seen {
+				logWindowsBLE("scan candidate: addr=%s name=%s", peerAddr, d.LocalName())
+				candidates[peerAddr] = d
+			}
+			candidatesMu.Unlock()
+		})
+	}()
+
+	select {
+	case <-scanCtx.Done():
+		_ = adapter.StopScan()
+	case err := <-scanDone:
+		return windowsScanResults(candidates, &candidatesMu), err
+	}
+
+	select {
+	case err := <-scanDone:
+		return windowsScanResults(candidates, &candidatesMu), err
+	case <-time.After(2 * time.Second):
+		return nil, fmt.Errorf("scan stop timeout")
+	}
+}
+
+func windowsScanResults(candidates map[string]bluetooth.ScanResult, candidatesMu *sync.Mutex) []bluetooth.ScanResult {
+	candidatesMu.Lock()
+	defer candidatesMu.Unlock()
+	found := make([]bluetooth.ScanResult, 0, len(candidates))
+	for _, d := range candidates {
+		found = append(found, d)
+	}
+	return found
 }
 
 func SetBLECallbacks(onPeer func(string, string), _ func(string, string, bool), _ func(string)) {
