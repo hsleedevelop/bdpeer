@@ -3,6 +3,7 @@ package ui
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +76,30 @@ func TestHandleFilesKeyFiltersAndSelectsVisibleFile(t *testing.T) {
 	want := filepath.Join("tmp", "bdpeer", "alpha.txt")
 	if m.confirmPath != want {
 		t.Fatalf("confirmPath = %q, want %q", m.confirmPath, want)
+	}
+}
+
+func TestCachedFilesViewInvalidatesWhenConfirmPathChanges(t *testing.T) {
+	peer := bnet.PeerInfo{Nickname: "peer"}
+	m := Model{
+		focus:   focusFiles,
+		fileCwd: filepath.Join("tmp", "bdpeer"),
+		fileEntries: []fileEntry{
+			{Name: "alpha.txt"},
+		},
+		activePeer: &peer,
+		cache:      &viewCache{},
+	}
+
+	first := m.cachedFilesView(40, 12)
+	if strings.Contains(first, "전송하시겠습니까?") {
+		t.Fatal("initial files view unexpectedly rendered confirmation prompt")
+	}
+
+	m.confirmPath = filepath.Join("tmp", "bdpeer", "alpha.txt")
+	second := m.cachedFilesView(40, 12)
+	if !strings.Contains(second, "전송하시겠습니까?") {
+		t.Fatal("files view did not refresh to render confirmation prompt")
 	}
 }
 

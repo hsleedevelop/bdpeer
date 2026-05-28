@@ -638,7 +638,11 @@ func (m Model) cachedFilesView(w, h int) string {
 		return fileTreeView(m, w, h)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%dx%d|f=%v|cwd=%s|i=%d|n=%d|q=%s|qe=%v", w, h, m.focus == focusFiles, m.fileCwd, m.fileIdx, len(m.fileEntries), m.fileFilter, m.fileFiltering)
+	fmt.Fprintf(&b, "%dx%d|f=%v|cwd=%s|i=%d|n=%d|q=%s|qe=%v|confirm=%s", w, h, m.focus == focusFiles, m.fileCwd, m.fileIdx, len(m.fileEntries), m.fileFilter, m.fileFiltering, m.confirmPath)
+	if m.activePeer != nil {
+		b.WriteString("|peer=")
+		b.WriteString(m.activePeer.Nickname)
+	}
 	for _, e := range m.fileEntries {
 		b.WriteByte('|')
 		b.WriteString(e.Name)
