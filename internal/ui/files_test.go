@@ -241,7 +241,7 @@ func TestFocusBarUsesEnglishLabels(t *testing.T) {
 }
 
 func TestMainViewRendersAppVersion(t *testing.T) {
-	m := New("chad").WithVersion("v1.2.3")
+	m := New("chad").WithVersion("1.2.3")
 	m.width = 80
 	m.height = 20
 
@@ -253,7 +253,7 @@ func TestMainViewRendersAppVersion(t *testing.T) {
 }
 
 func TestSetupViewRendersAppVersion(t *testing.T) {
-	m := New("").WithVersion("v1.2.3")
+	m := New("").WithVersion("1.2.3")
 	m.width = 80
 	m.height = 20
 
@@ -261,6 +261,20 @@ func TestSetupViewRendersAppVersion(t *testing.T) {
 
 	if !strings.Contains(got, "bdpeer v1.2.3") {
 		t.Fatalf("setupView() did not render app version:\n%s", got)
+	}
+}
+
+func TestDisplayVersionNormalizesReleaseVersions(t *testing.T) {
+	tests := map[string]string{
+		"1.2.3":  "v1.2.3",
+		"v1.2.3": "v1.2.3",
+		"dev":    "dev",
+		"":       "",
+	}
+	for input, want := range tests {
+		if got := DisplayVersion(input); got != want {
+			t.Fatalf("DisplayVersion(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

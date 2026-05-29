@@ -38,6 +38,7 @@ func main() {
 		filtered = append(filtered, a)
 	}
 	if len(filtered) > 0 {
+		displayVersion := ui.DisplayVersion(version)
 		switch filtered[0] {
 		case "--help", "-h", "help":
 			fmt.Printf(`bdpeer %s — 크로스 플랫폼 P2P TUI 채팅
@@ -59,10 +60,10 @@ TUI 커맨드 (입력창):
   /connect <multiaddr>   주소로 피어 직접 연결
   /file <경로>           파일 전송
 
-`, version)
+`, displayVersion)
 			return
 		case "--version", "-v", "version":
-			fmt.Printf("bdpeer %s (%s) built %s\n", version, commit, date)
+			fmt.Printf("bdpeer %s (%s) built %s\n", displayVersion, commit, date)
 			return
 		case "--update", "update":
 			runUpdate()
@@ -76,7 +77,7 @@ TUI 커맨드 (입력창):
 			os.Exit(1)
 		}
 		defer closeDebugLog()
-		debugLogger.Printf("=== bdpeer %s (%s) started ===", version, commit)
+		debugLogger.Printf("=== bdpeer %s (%s) started ===", ui.DisplayVersion(version), commit)
 	}
 
 	cfgPath := config.DefaultPath()
@@ -163,7 +164,7 @@ func startCoreAfterNickname(
 }
 
 func runUpdate() {
-	fmt.Printf("현재 버전: %s\n", version)
+	fmt.Printf("현재 버전: %s\n", ui.DisplayVersion(version))
 	fmt.Print("최신 버전 확인 중... ")
 
 	newTag, err := update.Do(version)

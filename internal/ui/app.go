@@ -135,8 +135,16 @@ func NewWithChannels(nickname string, sendCh chan<- core.SendRequest, nickCh cha
 }
 
 func (m Model) WithVersion(version string) Model {
-	m.appVersion = strings.TrimSpace(version)
+	m.appVersion = DisplayVersion(version)
 	return m
+}
+
+func DisplayVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" || version == "dev" || strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + version
 }
 
 func (m Model) appTitle() string {
