@@ -178,6 +178,68 @@ func TestHandleFilesKeyEscClearsAppliedFilter(t *testing.T) {
 	}
 }
 
+func TestPeerListViewUsesEnglishSelfCommandsAndVersion(t *testing.T) {
+	m := New("chad").WithVersion("v1.2.3")
+	m.focus = focusPeers
+
+	got := peerListView(m, 32, 16)
+
+	for _, want := range []string{
+		"Me: chad",
+		"Version: v1.2.3",
+		"Commands:",
+		"→ Chat",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("peerListView() missing %q:\n%s", want, got)
+		}
+	}
+	for _, old := range []string{"나:", "채팅"} {
+		if strings.Contains(got, old) {
+			t.Fatalf("peerListView() still contains %q:\n%s", old, got)
+		}
+	}
+}
+
+func TestFileTreeViewUsesEnglishFilterLabels(t *testing.T) {
+	m := Model{
+		focus:         focusFiles,
+		fileFilter:    "alp",
+		fileFiltering: true,
+		fileEntries: []fileEntry{
+			{Name: "alpha.txt"},
+			{Name: "beta.txt"},
+		},
+	}
+
+	got := fileTreeView(m, 80, 14)
+
+	for _, want := range []string{
+		"Filter: alp",
+		"Type filter",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("fileTreeView() missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "필터") {
+		t.Fatalf("fileTreeView() still contains Korean filter text:\n%s", got)
+	}
+}
+
+func TestFocusBarUsesEnglishLabels(t *testing.T) {
+	got := focusBar(focusChat)
+
+	for _, want := range []string{"[1.Peers]", "[2.Chat]", "[3.Files]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("focusBar() missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "채팅") {
+		t.Fatalf("focusBar() still contains Korean chat text: %s", got)
+	}
+}
+
 func TestMainViewRendersAppVersion(t *testing.T) {
 	m := New("chad").WithVersion("v1.2.3")
 	m.width = 80

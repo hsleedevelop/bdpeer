@@ -8,15 +8,20 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  bdpeer  [alice]                                     │
+│  bdpeer v0.5.28  [alice]                             │
 ├──────────────┬───────────────────────────────────────┤
 │ Peers        │ Chat: bob                             │
+│ Me: alice    │                                       │
+│ Version:     │ bob: 안녕!                            │
+│ v0.5.28      │ Me: 파일 보낼게                       │
 │              │                                       │
-│ ▶ bob        │ bob: 안녕!                            │
-│   carol      │ you: 파일 보낼게                      │
+│ ▶ bob        │ > /file ~/photo.jpg█                  │
+│   carol      │ Enter send  /file <path>  Esc quit    │
 │              │                                       │
-│              │ > /file ~/photo.jpg█                  │
-│ ↑/↓ select  │ Enter send  /file <path>  Esc quit   │
+│ Commands:    │                                       │
+│ ↑/↓ select   │                                       │
+│ → Chat       │                                       │
+│ q quit       │                                       │
 └──────────────┴───────────────────────────────────────┘
 ```
 
@@ -41,7 +46,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.27
+VERSION=0.5.28
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -108,7 +113,7 @@ make build
 
 첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 같은 네트워크의 피어는 즉시 발견되고, 다른 서브넷·인터넷 너머 피어는 DHT를 통해 약 10–30초 후 자동으로 나타납니다. BLE 근거리 피어도 앱 시작 후 자동으로 검색됩니다.
 
-v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다.
+v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다. v0.5.28부터 Peers 패널에도 버전이 표시되며, 한글 IME 입력 중 깨짐과 입력 지연을 줄였습니다.
 
 `Tab` 키로 우측 패널을 로그 뷰로 전환하면 피어 발견 과정(DHT 광고·검색·연결 시도)을 실시간으로 확인할 수 있습니다.
 

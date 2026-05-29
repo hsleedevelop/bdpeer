@@ -29,7 +29,10 @@ func peerListView(m Model, width, height int) string {
 	var sb strings.Builder
 	sb.WriteString(StyleTitle.Render("Peers") + "\n")
 	if m.nickname != "" {
-		sb.WriteString(StyleHelp.Render("나: "+m.nickname) + "\n")
+		sb.WriteString(StyleHelp.Render("Me: "+m.nickname) + "\n")
+	}
+	if m.appVersion != "" {
+		sb.WriteString(StyleHelp.Render("Version: "+m.appVersion) + "\n")
 	}
 	sb.WriteString("\n")
 
@@ -51,6 +54,10 @@ func peerListView(m Model, width, height int) string {
 		sb.WriteString(StyleHelp.Render("피어 자동 검색 중") + "\n")
 	}
 
-	sb.WriteString("\n" + StyleHelp.Render("↑/↓ select  → 채팅  q quit"))
+	sb.WriteString("\n")
+	sb.WriteString(StyleHelp.Render("Commands:") + "\n")
+	sb.WriteString(StyleHelp.Render("↑/↓ select") + "\n")
+	sb.WriteString(StyleHelp.Render("→ Chat") + "\n")
+	sb.WriteString(StyleHelp.Render("q quit"))
 	return panelStyle(m.focus == focusPeers).Width(width).Height(height).Render(sb.String())
 }

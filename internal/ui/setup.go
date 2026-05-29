@@ -23,7 +23,7 @@ func setupView(m Model) string {
 		"",
 		"Enter your nickname:",
 		"",
-		"> " + m.inputBuf + "█",
+		inputLineWithCursor(m.inputBuf, 32),
 		"",
 		StyleHelp.Render("Press Enter to confirm"),
 	}, "\n")
@@ -53,9 +53,7 @@ func (m Model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyBackspace, tea.KeyDelete:
-		if len(m.inputBuf) > 0 {
-			m.inputBuf = m.inputBuf[:len(m.inputBuf)-1]
-		}
+		m.inputBuf = dropLastRune(m.inputBuf)
 	case tea.KeyCtrlC, tea.KeyEsc:
 		return m, tea.Quit
 	default:

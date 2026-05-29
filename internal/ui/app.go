@@ -92,16 +92,18 @@ type Model struct {
 	fileFiltering bool
 	confirmPath   string
 
-	// Hangul IME fires 2-3 key events per syllable. Re-rendering all three
-	// panels through lipgloss on every keystroke is the dominant cost; cache
-	// the peer and files panels and recompute only when their inputs change.
+	// Hangul IME fires 2-3 key events per syllable. Re-rendering the full
+	// lipgloss screen on every key is the dominant cost; cache stable panel
+	// fragments and recompute only when their inputs change.
 	// Shared via pointer so mutation persists across value-copied Models.
 	cache *viewCache
 }
 
 type viewCache struct {
-	peerKey, peerView   string
-	filesKey, filesView string
+	peerKey, peerView         string
+	filesKey, filesView       string
+	chatBodyKey, chatBodyView string
+	logKey, logView           string
 }
 
 func New(nickname string) Model {
@@ -239,7 +241,7 @@ func mainView(m Model) string {
 
 	var mid string
 	if m.showLog {
-		mid = logView(m, midW, h)
+		mid = m.cachedLogView(midW, h)
 	} else {
 		mid = chatView(m, midW, h)
 	}
@@ -250,9 +252,9 @@ func mainView(m Model) string {
 	if m.localAddr != "" {
 		addrHint = "  " + m.localAddr
 	}
-	logToggle := "  [Tab: 로그]"
+	logToggle := "  [Tab: Log]"
 	if m.showLog {
-		logToggle = "  [Tab: 채팅]"
+		logToggle = "  [Tab: Chat]"
 	}
 	focusHint := "  " + focusBar(m.focus)
 	title := lipgloss.NewStyle().
@@ -378,9 +380,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeySpace:
 		m.inputBuf += " "
 	case tea.KeyBackspace:
-		if len(m.inputBuf) > 0 {
-			m.inputBuf = m.inputBuf[:len(m.inputBuf)-1]
-		}
+		m.inputBuf = dropLastRune(m.inputBuf)
 	default:
 		if msg.Type == tea.KeyRunes {
 			if msg.String() == "q" && m.inputBuf == "" {
@@ -604,7 +604,7 @@ func (m Model) cachedPeerView(w, h int) string {
 		return peerListView(m, w, h)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%dx%d|f=%v|n=%d", w, h, m.focus == focusPeers, len(m.peers))
+	fmt.Fprintf(&b, "%dx%d|f=%v|nick=%s|ver=%s|n=%d", w, h, m.focus == focusPeers, m.nickname, m.appVersion, len(m.peers))
 	for _, p := range m.peers {
 		b.WriteByte('|')
 		b.WriteString(string(p.ID))

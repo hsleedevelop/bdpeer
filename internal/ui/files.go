@@ -46,14 +46,14 @@ type fileEntry struct {
 func focusBar(f focusArea) string {
 	on := StyleMessageMine.Render
 	off := StyleHelp.Render
-	p, c, fi := off("[1.피어]"), off("[2.채팅]"), off("[3.파일]")
+	p, c, fi := off("[1.Peers]"), off("[2.Chat]"), off("[3.Files]")
 	switch f {
 	case focusPeers:
-		p = on("[1.피어]")
+		p = on("[1.Peers]")
 	case focusChat:
-		c = on("[2.채팅]")
+		c = on("[2.Chat]")
 	case focusFiles:
-		fi = on("[3.파일]")
+		fi = on("[3.Files]")
 	}
 	return p + " " + c + " " + fi
 }
@@ -182,9 +182,9 @@ func fileTreeView(m Model, width, height int) string {
 	filterText := ""
 	switch {
 	case m.fileFiltering:
-		filterText = "필터: " + m.fileFilter + "▏"
+		filterText = "Filter: " + m.fileFilter + "▏"
 	case m.fileFilter != "":
-		filterText = "필터: " + m.fileFilter
+		filterText = "Filter: " + m.fileFilter
 	}
 	var filterLine string
 	if filterText != "" {
@@ -196,11 +196,11 @@ func fileTreeView(m Model, width, height int) string {
 	help := "→포커스 ↑↓이동 Enter선택"
 	switch {
 	case m.fileFiltering:
-		help = "타이핑 필터 Enter적용 Esc취소"
+		help = "Type filter  Enter apply  Esc cancel"
 	case m.focus == focusFiles:
-		help = "←채팅 ↑↓이동 Enter /필터"
+		help = "←Chat ↑↓ move  Enter select  /filter"
 		if m.fileFilter != "" {
-			help = "←채팅 ↑↓이동 Enter /수정 Esc해제"
+			help = "←Chat ↑↓ move  Enter select  /edit  Esc clear"
 		}
 	}
 	helpLine := StyleHelp.Render(truncateForWidth(help, width-2))
