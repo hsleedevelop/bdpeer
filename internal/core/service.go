@@ -436,10 +436,14 @@ func (s *Service) Send(ctx context.Context, req SendRequest) error {
 
 		transferID := newTransferID()
 		ackCh := s.registerAck(transferID)
+		chunkSize := proto.ChunkSize
+		if t.Name() == "ble" {
+			chunkSize = proto.BLEFileChunkSize
+		}
 
 		pr, pw := io.Pipe()
 		go func() {
-			err := transfer.WriteFile(req.File, s.cfg.Nickname, transferID, pw, func(sent, tot int64) {
+			err := transfer.WriteFileWithChunkSize(req.File, s.cfg.Nickname, transferID, pw, chunkSize, func(sent, tot int64) {
 				select {
 				case s.events <- Event{Type: EventFileProgress, From: s.cfg.Nickname, Name: name, Received: sent, Total: tot, Outgoing: true}:
 				default:

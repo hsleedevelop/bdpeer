@@ -38,11 +38,17 @@ func MakeDataChunks(data []byte) [][]byte {
 // ChunkAssembler reassembles BLE DataChar chunk sequences per peer.
 // Not goroutine-safe — the caller must serialize Feed calls per instance.
 type ChunkAssembler struct {
-	bufs map[string][]byte
+	states map[string]*chunkState
+}
+
+type chunkState struct {
+	buf   []byte
+	next  uint16
+	total uint16
 }
 
 func NewChunkAssembler() *ChunkAssembler {
-	return &ChunkAssembler{bufs: make(map[string][]byte)}
+	return &ChunkAssembler{states: make(map[string]*chunkState)}
 }
 
 // Feed processes one raw BLE notification chunk for the given peer key.
@@ -60,22 +66,34 @@ func (a *ChunkAssembler) Feed(peerKey string, chunk []byte) ([]byte, bool) {
 	if total == 0 {
 		return nil, false
 	}
-	if idx != 0 {
-		if _, ok := a.bufs[peerKey]; !ok {
-			return nil, false
-		}
+	if idx >= total {
+		a.Reset(peerKey)
+		return nil, false
 	}
 
 	payload := chunk[bleChunkHdr:]
 
 	if idx == 0 {
-		a.bufs[peerKey] = make([]byte, 0, int(total)*bleChunkBody)
+		a.states[peerKey] = &chunkState{
+			buf:   make([]byte, 0, int(total)*bleChunkBody),
+			next:  1,
+			total: total,
+		}
+	} else {
+		st, ok := a.states[peerKey]
+		if !ok || idx != st.next || total != st.total {
+			a.Reset(peerKey)
+			return nil, false
+		}
+		st.next++
 	}
-	a.bufs[peerKey] = append(a.bufs[peerKey], payload...)
+
+	st := a.states[peerKey]
+	st.buf = append(st.buf, payload...)
 
 	if idx == total-1 {
-		result := a.bufs[peerKey]
-		delete(a.bufs, peerKey)
+		result := st.buf
+		delete(a.states, peerKey)
 		return result, true
 	}
 	return nil, false
@@ -84,7 +102,7 @@ func (a *ChunkAssembler) Feed(peerKey string, chunk []byte) ([]byte, bool) {
 // Reset discards any partial assembly state for peerKey.
 // Call when a peer disconnects to prevent stale buffer accumulation.
 func (a *ChunkAssembler) Reset(peerKey string) {
-	delete(a.bufs, peerKey)
+	delete(a.states, peerKey)
 }
 
 // MakeSessionDataChunks splits data into BLE chunk frames carrying explicit
@@ -134,11 +152,11 @@ func MakeSessionDataChunks(fromSession, toSession string, data []byte) [][]byte 
 // SessionChunkAssembler reassembles session-addressed BLE chunks by sender.
 // Not goroutine-safe — the caller must serialize Feed calls per instance.
 type SessionChunkAssembler struct {
-	bufs map[string][]byte
+	states map[string]*chunkState
 }
 
 func NewSessionChunkAssembler() *SessionChunkAssembler {
-	return &SessionChunkAssembler{bufs: make(map[string][]byte)}
+	return &SessionChunkAssembler{states: make(map[string]*chunkState)}
 }
 
 // Feed processes one raw session BLE chunk. It returns the sender session ID,
@@ -155,25 +173,36 @@ func (a *SessionChunkAssembler) Feed(localSession string, chunk []byte) (string,
 	if total == 0 {
 		return "", nil, false
 	}
-	if idx != 0 {
-		if _, ok := a.bufs[from]; !ok {
-			return "", nil, false
-		}
+	if idx >= total {
+		a.Reset(from)
+		return "", nil, false
 	}
 	if idx == 0 {
-		a.bufs[from] = make([]byte, 0, int(total)*bleChunkBody)
+		a.states[from] = &chunkState{
+			buf:   make([]byte, 0, int(total)*bleChunkBody),
+			next:  1,
+			total: total,
+		}
+	} else {
+		st, ok := a.states[from]
+		if !ok || idx != st.next || total != st.total {
+			a.Reset(from)
+			return "", nil, false
+		}
+		st.next++
 	}
-	a.bufs[from] = append(a.bufs[from], payload...)
+	st := a.states[from]
+	st.buf = append(st.buf, payload...)
 	if idx == total-1 {
-		result := a.bufs[from]
-		delete(a.bufs, from)
+		result := st.buf
+		delete(a.states, from)
 		return from, result, true
 	}
 	return "", nil, false
 }
 
 func (a *SessionChunkAssembler) Reset(sessionID string) {
-	delete(a.bufs, sessionID)
+	delete(a.states, sessionID)
 }
 
 func parseSessionChunk(chunk []byte) (from, to string, idx, total uint16, payload []byte, ok bool) {

@@ -2,6 +2,7 @@ package proto
 
 const Protocol = "/bdpeer/1.0.0"
 const ChunkSize = 32 * 1024 // 32 KB
+const BLEFileChunkSize = 2 * 1024
 
 type FrameType string
 

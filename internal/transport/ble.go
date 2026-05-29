@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"sync"
@@ -113,6 +114,7 @@ func (t *BLETransport) runReader(peer PeerID, e *bleEntry) {
 // bleStream is the per-call outbound wrapper. Write calls sendFn; Close releases writeMu.
 type bleStream struct {
 	entry     *bleEntry
+	outBuf    []byte
 	closeOnce sync.Once
 }
 
@@ -121,9 +123,18 @@ func (s *bleStream) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 func (s *bleStream) Write(p []byte) (int, error) {
-	buf := make([]byte, len(p))
-	copy(buf, p)
-	s.entry.sendFn(buf)
+	s.outBuf = append(s.outBuf, p...)
+	for len(s.outBuf) >= 4 {
+		length := int(binary.BigEndian.Uint32(s.outBuf[:4]))
+		frameLen := 4 + length
+		if len(s.outBuf) < frameLen {
+			break
+		}
+		buf := make([]byte, frameLen)
+		copy(buf, s.outBuf[:frameLen])
+		s.entry.sendFn(buf)
+		s.outBuf = s.outBuf[frameLen:]
+	}
 	return len(p), nil
 }
 func (s *bleStream) Close() error {

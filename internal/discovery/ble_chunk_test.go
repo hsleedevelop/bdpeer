@@ -84,6 +84,24 @@ func TestChunkAssemblerOrphanedChunk(t *testing.T) {
 	}
 }
 
+func TestChunkAssemblerDropsGapBeforeLastChunk(t *testing.T) {
+	a := NewChunkAssembler()
+	data := make([]byte, 1000) // 3 chunks
+	chunks := MakeDataChunks(data)
+
+	if result, done := a.Feed("peer1", chunks[0]); done || result != nil {
+		t.Fatal("first chunk should only start assembly")
+	}
+	result, done := a.Feed("peer1", chunks[2])
+	if done || result != nil {
+		t.Fatal("gapped last chunk should be dropped, got result")
+	}
+	result, done = a.Feed("peer1", chunks[1])
+	if done || result != nil {
+		t.Fatal("sequence should reset after a gap")
+	}
+}
+
 func TestChunkAssemblerTotalZero(t *testing.T) {
 	a := NewChunkAssembler()
 	// Craft a malformed chunk with total==0.

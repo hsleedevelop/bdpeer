@@ -64,6 +64,26 @@ func TestSessionChunkAssemblerMultipleSenders(t *testing.T) {
 	}
 }
 
+func TestSessionChunkAssemblerDropsGapBeforeLastChunk(t *testing.T) {
+	chunks := MakeSessionDataChunks("alice", "me", make([]byte, 1000))
+	if len(chunks) < 3 {
+		t.Fatalf("test needs at least 3 chunks, got %d", len(chunks))
+	}
+	a := NewSessionChunkAssembler()
+
+	if from, result, done := a.Feed("me", chunks[0]); done || from != "" || result != nil {
+		t.Fatal("first chunk should only start assembly")
+	}
+	from, result, done := a.Feed("me", chunks[2])
+	if done || from != "" || result != nil {
+		t.Fatal("gapped last chunk should be dropped, got result")
+	}
+	from, result, done = a.Feed("me", chunks[1])
+	if done || from != "" || result != nil {
+		t.Fatal("sequence should reset after a gap")
+	}
+}
+
 func TestMakeSessionDataChunksRejectsOversizedSessionIDs(t *testing.T) {
 	long := make([]byte, 256)
 	for i := range long {

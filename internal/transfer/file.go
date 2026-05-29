@@ -14,6 +14,13 @@ import (
 // progress, if non-nil, is invoked after each chunk with (sentBytes, totalBytes).
 // transferID is echoed in FILE_START so the receiver can ACK against the same id.
 func WriteFile(srcPath, from, transferID string, w io.Writer, progress func(int64, int64)) error {
+	return WriteFileWithChunkSize(srcPath, from, transferID, w, proto.ChunkSize, progress)
+}
+
+func WriteFileWithChunkSize(srcPath, from, transferID string, w io.Writer, chunkSize int, progress func(int64, int64)) error {
+	if chunkSize <= 0 {
+		chunkSize = proto.ChunkSize
+	}
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return err
@@ -37,7 +44,7 @@ func WriteFile(srcPath, from, transferID string, w io.Writer, progress func(int6
 	}
 
 	h := sha256.New()
-	buf := make([]byte, proto.ChunkSize)
+	buf := make([]byte, chunkSize)
 	seq := 0
 	var sent int64
 	for {

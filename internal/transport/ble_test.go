@@ -72,6 +72,42 @@ func TestBLETransportRoundtrip(t *testing.T) {
 	}
 }
 
+func TestBLETransportCoalescesSplitFrameWrites(t *testing.T) {
+	bt := NewBLETransport()
+
+	var sends [][]byte
+	peer := PeerID("ble-test-peer")
+	bt.Attach(peer, func(data []byte) {
+		cp := make([]byte, len(data))
+		copy(cp, data)
+		sends = append(sends, cp)
+	})
+	bt.SetHandler(func(_ PeerID, _ io.ReadWriteCloser) {})
+
+	outbound := encodeFrame(t, proto.Frame{Type: proto.FrameText, From: "bob", Content: "hello"})
+	stream, err := bt.OpenStream(context.Background(), peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Write(outbound[:4]); err != nil {
+		t.Fatal(err)
+	}
+	if len(sends) != 0 {
+		t.Fatalf("length prefix alone should not be sent, got %d sends", len(sends))
+	}
+	if _, err := stream.Write(outbound[4:]); err != nil {
+		t.Fatal(err)
+	}
+	stream.Close()
+
+	if len(sends) != 1 {
+		t.Fatalf("want one coalesced send, got %d", len(sends))
+	}
+	if !bytes.Equal(sends[0], outbound) {
+		t.Fatalf("coalesced data mismatch: want %v, got %v", outbound, sends[0])
+	}
+}
+
 func TestBLETransportNoConnection(t *testing.T) {
 	bt := NewBLETransport()
 	bt.SetHandler(func(_ PeerID, _ io.ReadWriteCloser) {})

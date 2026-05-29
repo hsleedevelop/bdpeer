@@ -67,6 +67,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableSet<CBCentral *> *subscribedCentrals;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *centralDataBufs;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *centralSDPNextIdx;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *centralDataNextIdx;
 // Pending notify queue — drained when peripheralManagerIsReadyToUpdateSubscribers fires.
 // Each entry: @{ @"chunk": NSData, @"char": CBMutableCharacteristic, @"centrals": NSArray<CBCentral*>|NSNull }
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *pendingNotifies;
@@ -82,6 +84,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *serviceDiscoveryRetryCounts;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralSDPBufs;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *peripheralDataBufs;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *peripheralSDPNextIdx;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *peripheralDataNextIdx;
 @property (nonatomic, assign) BOOL startupScanStarted;
 @property (nonatomic, assign) BOOL autoScanContinuous;
 @property (nonatomic, assign) BOOL recoveryScanScheduled;
@@ -96,6 +100,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
     _subscribedCentrals = [NSMutableSet new];
     _centralSDPBufs     = [NSMutableDictionary new];
     _centralDataBufs    = [NSMutableDictionary new];
+    _centralSDPNextIdx  = [NSMutableDictionary new];
+    _centralDataNextIdx = [NSMutableDictionary new];
     _pendingNotifies    = [NSMutableArray new];
     _peripherals        = [NSMutableDictionary new];
     _readyPeripheralIDs = [NSMutableSet new];
@@ -106,6 +112,8 @@ static NSData *makeChunk(char type, uint16_t idx, uint16_t total, NSData *payloa
     _serviceDiscoveryRetryCounts = [NSMutableDictionary new];
     _peripheralSDPBufs  = [NSMutableDictionary new];
     _peripheralDataBufs = [NSMutableDictionary new];
+    _peripheralSDPNextIdx  = [NSMutableDictionary new];
+    _peripheralDataNextIdx = [NSMutableDictionary new];
     return self;
 }
 
@@ -196,6 +204,8 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         NSString *uuid = central.identifier.UUIDString;
         [_centralSDPBufs  removeObjectForKey:uuid];
         [_centralDataBufs removeObjectForKey:uuid];
+        [_centralSDPNextIdx  removeObjectForKey:uuid];
+        [_centralDataNextIdx removeObjectForKey:uuid];
     }
 }
 
@@ -205,10 +215,12 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
         if ([req.characteristic.UUID isEqual:sdpUUID()]) {
             [self handleChunk:req.value
                      inBufMap:_centralSDPBufs
+                      nextMap:_centralSDPNextIdx
                           key:req.central.identifier.UUIDString];
         } else if ([req.characteristic.UUID isEqual:dataUUID()]) {
             [self handleDataChunk:req.value
                          inBufMap:_centralDataBufs
+                          nextMap:_centralDataNextIdx
                               key:req.central.identifier.UUIDString];
         }
     }
@@ -312,6 +324,8 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     [_connectingPeripheralIDs removeObject:uuid];
     [_peripheralSDPBufs  removeObjectForKey:uuid];
     [_peripheralDataBufs removeObjectForKey:uuid];
+    [_peripheralSDPNextIdx  removeObjectForKey:uuid];
+    [_peripheralDataNextIdx removeObjectForKey:uuid];
     [_notifiedPeripheralNames removeObjectForKey:uuid];
     [_connectRetryCounts removeObjectForKey:uuid];
     [_serviceDiscoveryRetryCounts removeObjectForKey:uuid];
@@ -558,12 +572,14 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     if ([c.UUID isEqual:sdpUUID()]) {
         [self handleChunk:c.value
                  inBufMap:_peripheralSDPBufs
+                  nextMap:_peripheralSDPNextIdx
                       key:p.identifier.UUIDString];
     }
 
     if ([c.UUID isEqual:dataUUID()]) {
         [self handleDataChunk:c.value
                      inBufMap:_peripheralDataBufs
+                      nextMap:_peripheralDataNextIdx
                           key:p.identifier.UUIDString];
     }
 }
@@ -591,6 +607,7 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
 
 - (void)handleChunk:(NSData *)chunk
            inBufMap:(NSMutableDictionary<NSString *, NSMutableData *> *)bufs
+            nextMap:(NSMutableDictionary<NSString *, NSNumber *> *)nexts
                 key:(NSString *)key {
     if (chunk.length < CHUNK_HDR) return;
     const uint8_t *b = chunk.bytes;
@@ -598,6 +615,11 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
     if (total == 0) return;
+    if (idx >= total) {
+        [bufs removeObjectForKey:key];
+        [nexts removeObjectForKey:key];
+        return;
+    }
 
     // idx==0 is the canonical "new message starts" signal — always reset the
     // buffer so a previous interrupted/dropped message cannot leak stale bytes
@@ -605,21 +627,30 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     // every subsequent message reassembled under the same key.
     if (idx == 0) {
         bufs[key] = [NSMutableData new];
-    } else if (!bufs[key]) {
-        // Mid-message chunk arrived without a prior idx==0 — drop it.
-        return;
+        nexts[key] = @(1);
+    } else {
+        NSNumber *expected = nexts[key];
+        if (!bufs[key] || !expected || idx != expected.unsignedIntValue) {
+            [bufs removeObjectForKey:key];
+            [nexts removeObjectForKey:key];
+            return;
+        }
+        nexts[key] = @(idx + 1);
     }
+    if (!bufs[key]) return;
     [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];
 
     if (idx == total - 1) {
         NSString *sdp = [[NSString alloc] initWithData:bufs[key] encoding:NSUTF8StringEncoding];
         bufs[key] = nil;
+        nexts[key] = nil;
         go_ble_sdp_received([key UTF8String], [sdp UTF8String], type == 'O' ? 1 : 0);
     }
 }
 
 - (void)handleDataChunk:(NSData *)chunk
                inBufMap:(NSMutableDictionary<NSString *, NSMutableData *> *)bufs
+                nextMap:(NSMutableDictionary<NSString *, NSNumber *> *)nexts
                     key:(NSString *)key {
     if (chunk.length < CHUNK_HDR) return;
     const uint8_t *b = chunk.bytes;
@@ -627,19 +658,33 @@ didUpdateValueForCharacteristic:(CBCharacteristic *)c
     uint16_t idx   = ((uint16_t)b[1] << 8) | b[2];
     uint16_t total = ((uint16_t)b[3] << 8) | b[4];
     if (total == 0) return;
+    if (idx >= total) {
+        [bufs removeObjectForKey:key];
+        [nexts removeObjectForKey:key];
+        return;
+    }
 
     // See handleChunk: idx==0 must reset the buffer to prevent stale bytes
     // from a previously interrupted message corrupting the next one.
     if (idx == 0) {
         bufs[key] = [NSMutableData new];
-    } else if (!bufs[key]) {
-        return;
+        nexts[key] = @(1);
+    } else {
+        NSNumber *expected = nexts[key];
+        if (!bufs[key] || !expected || idx != expected.unsignedIntValue) {
+            [bufs removeObjectForKey:key];
+            [nexts removeObjectForKey:key];
+            return;
+        }
+        nexts[key] = @(idx + 1);
     }
+    if (!bufs[key]) return;
     [bufs[key] appendBytes:b + CHUNK_HDR length:chunk.length - CHUNK_HDR];
 
     if (idx == total - 1) {
         NSData *assembled = bufs[key];
         bufs[key] = nil;
+        nexts[key] = nil;
         go_ble_data_received([key UTF8String], (const uint8_t *)assembled.bytes, (int)assembled.length);
     }
 }
