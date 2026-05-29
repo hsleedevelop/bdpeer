@@ -235,7 +235,10 @@ func mainView(m Model) string {
 	if midW < 20 {
 		midW = 20
 	}
-	h := m.height - 2
+	h := m.height - 3
+	if h < 1 {
+		h = 1
+	}
 
 	left := m.cachedPeerView(leftW, h)
 

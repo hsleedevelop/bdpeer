@@ -27,16 +27,20 @@ func progressBar(received, total int64, width int) (string, int) {
 
 func logView(m Model, width, height int) string {
 	header := StyleTitle.Render("Log")
-	lineHeight := height - 3
+	lineHeight := height - 2
+	if lineHeight < 0 {
+		lineHeight = 0
+	}
 	start := 0
 	if len(m.logs) > lineHeight {
 		start = len(m.logs) - lineHeight
 	}
 	var lines []string
 	for _, l := range m.logs[start:] {
-		lines = append(lines, StyleHelp.Render(l))
+		l = strings.ReplaceAll(l, "\n", " ")
+		lines = append(lines, StyleHelp.Render(truncateForWidth(l, width)))
 	}
-	help := StyleHelp.Render("↑/↓ select  Enter/Tab Chat  /connect <addr>")
+	help := StyleHelp.Render(truncateForWidth("↑/↓ select  Enter/Tab Chat  /connect <addr>", width))
 	body := header + "\n" + strings.Join(lines, "\n") + "\n" + help
 	return panelStyle(m.focus == focusChat).Width(width).Height(height).Render(body)
 }
@@ -56,7 +60,10 @@ func (m Model) cachedLogView(width, height int) string {
 }
 
 func (m Model) logViewKey(width, height int) string {
-	lineHeight := height - 3
+	lineHeight := height - 2
+	if lineHeight < 0 {
+		lineHeight = 0
+	}
 	start := 0
 	if len(m.logs) > lineHeight {
 		start = len(m.logs) - lineHeight

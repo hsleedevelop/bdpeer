@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	dht "github.com/libp2p/go-libp2p-kad-dht"
 	libp2p "github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -37,6 +37,11 @@ type Host struct {
 	mu             sync.RWMutex
 	nicknames      map[peer.ID]string
 	dht            *dht.IpfsDHT
+	dhtMu          sync.Mutex
+	dhtFailedAt    map[peer.ID]time.Time
+	dhtSearchLog   time.Time
+	dhtIdleLog     time.Time
+	dhtErrorLog    time.Time
 }
 
 func GenerateIdentityB64() (string, error) {
@@ -207,12 +212,49 @@ func (n *libp2pNotifee) ListenClose(_ network.Network, _ multiaddr.Multiaddr) {}
 
 const dhtNamespace = "bdpeer/v1"
 
+const (
+	dhtStatusLogInterval     = 5 * time.Minute
+	dhtConnectFailureBackoff = 5 * time.Minute
+)
+
 func dhtNicknameKey(nickname string) string { return dhtNamespace + "/" + nickname }
 
 func (h *Host) emitLog(msg string) {
 	if h.OnLog != nil {
 		h.OnLog(msg)
 	}
+}
+
+func (h *Host) shouldLogDHTStatus(last *time.Time, now time.Time) bool {
+	h.dhtMu.Lock()
+	defer h.dhtMu.Unlock()
+	if last.IsZero() || now.Sub(*last) >= dhtStatusLogInterval {
+		*last = now
+		return true
+	}
+	return false
+}
+
+func (h *Host) shouldRetryDHTPeer(id peer.ID, now time.Time) bool {
+	h.dhtMu.Lock()
+	defer h.dhtMu.Unlock()
+	failedAt, ok := h.dhtFailedAt[id]
+	return !ok || now.Sub(failedAt) >= dhtConnectFailureBackoff
+}
+
+func (h *Host) recordDHTConnectFailure(id peer.ID, now time.Time) {
+	h.dhtMu.Lock()
+	defer h.dhtMu.Unlock()
+	if h.dhtFailedAt == nil {
+		h.dhtFailedAt = make(map[peer.ID]time.Time)
+	}
+	h.dhtFailedAt[id] = now
+}
+
+func (h *Host) recordDHTConnectSuccess(id peer.ID) {
+	h.dhtMu.Lock()
+	defer h.dhtMu.Unlock()
+	delete(h.dhtFailedAt, id)
 }
 
 // FindByNickname searches the DHT for a peer advertising under the given nickname.
@@ -275,17 +317,22 @@ func (h *Host) StartDHTDiscovery(ctx context.Context, mgr *discovery.Manager) {
 }
 
 func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingDiscovery, mgr *discovery.Manager) {
-	h.emitLog("DHT 피어 검색 중...")
+	now := time.Now()
+	if h.shouldLogDHTStatus(&h.dhtSearchLog, now) {
+		h.emitLog("DHT 피어 검색 중...")
+	}
 	findCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	peers, err := dutil.FindPeers(findCtx, rd, dhtNamespace)
 	if err != nil {
-		h.emitLog("DHT 검색 실패: " + err.Error())
+		if h.shouldLogDHTStatus(&h.dhtErrorLog, now) {
+			h.emitLog("DHT 검색 실패: " + err.Error())
+		}
 		return
 	}
 
-	newPeers := 0
+	attemptedPeers := 0
 	for _, p := range peers {
 		if p.ID == h.Libp2p.ID() || len(p.Addrs) == 0 {
 			continue
@@ -293,16 +340,22 @@ func (h *Host) findAndConnectDHTPeers(ctx context.Context, rd *drouting.RoutingD
 		if h.Libp2p.Network().Connectedness(p.ID) == network.Connected {
 			continue
 		}
-		newPeers++
+		if !h.shouldRetryDHTPeer(p.ID, now) {
+			continue
+		}
+		attemptedPeers++
 		h.emitLog("DHT 발견 → " + p.ID.String()[:8] + "... 연결 시도 중")
 		connCtx, connCancel := context.WithTimeout(ctx, 15*time.Second)
 		if err := h.Libp2p.Connect(connCtx, p); err != nil {
+			h.recordDHTConnectFailure(p.ID, now)
 			h.emitLog("DHT 연결 실패: " + p.ID.String()[:8] + "... — " + err.Error())
+		} else {
+			h.recordDHTConnectSuccess(p.ID)
 		}
 		connCancel()
 	}
-	if newPeers == 0 {
-		h.emitLog("DHT: 새 피어 없음 (30초 후 재시도)")
+	if attemptedPeers == 0 && h.shouldLogDHTStatus(&h.dhtIdleLog, now) {
+		h.emitLog("DHT: 새 연결 대상 없음 (백그라운드 재시도 중)")
 	}
 }
 

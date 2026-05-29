@@ -8,12 +8,12 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  bdpeer v0.5.28  [alice]                             │
+│  bdpeer v0.5.29  [alice]                             │
 ├──────────────┬───────────────────────────────────────┤
 │ Peers        │ Chat: bob                             │
 │ Me: alice    │                                       │
 │ Version:     │ bob: 안녕!                            │
-│ v0.5.28      │ Me: 파일 보낼게                       │
+│ v0.5.29      │ Me: 파일 보낼게                       │
 │              │                                       │
 │ ▶ bob        │ > /file ~/photo.jpg█                  │
 │   carol      │ Enter send  /file <path>  Esc quit    │
@@ -46,7 +46,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.28
+VERSION=0.5.29
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -113,9 +113,9 @@ make build
 
 첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 같은 네트워크의 피어는 즉시 발견되고, 다른 서브넷·인터넷 너머 피어는 DHT를 통해 약 10–30초 후 자동으로 나타납니다. BLE 근거리 피어도 앱 시작 후 자동으로 검색됩니다.
 
-v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다. v0.5.28부터 Peers 패널에도 버전이 표시되며, 한글 IME 입력 중 깨짐과 입력 지연을 줄였습니다.
+v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다. v0.5.28부터 Peers 패널에도 버전이 표시되며, 한글 IME 입력 중 깨짐과 입력 지연을 줄였습니다. v0.5.29부터 로그 뷰는 긴 DHT/BLE 로그를 패널 폭에 맞게 절단해 작은 창에서도 전체 TUI 높이를 넘지 않습니다.
 
-`Tab` 키로 우측 패널을 로그 뷰로 전환하면 피어 발견 과정(DHT 광고·검색·연결 시도)을 실시간으로 확인할 수 있습니다.
+`Tab` 키로 우측 패널을 로그 뷰로 전환하면 피어 발견 과정(DHT 광고·검색·연결 시도)을 실시간으로 확인할 수 있습니다. DHT 자동 검색은 계속 백그라운드에서 동작하지만, 상태 로그와 같은 피어의 반복 연결 실패는 일정 간격으로 억제됩니다.
 
 | 키 / 명령 | 동작 |
 |---|---|
@@ -174,7 +174,7 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 > **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
-> **DHT**: 공개 IPFS DHT(`bdpeer/v1` 네임스페이스) 사용. NAT 홀펀칭(DCUtR) + AutoRelay 지원.
+> **DHT**: 공개 IPFS DHT(`bdpeer/v1` 네임스페이스) 사용. NAT 홀펀칭(DCUtR) + AutoRelay 지원. v0.5.29부터 자동 검색 상태 로그와 실패한 피어 재연결 시도는 5분 단위로 제한해 로그 뷰가 반복 메시지로 빠르게 차는 현상을 줄입니다.
 
 ## TURN 서버 설정 (선택)
 
