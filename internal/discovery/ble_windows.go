@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ var (
 	windowsDataChars    = map[string]bluetooth.DeviceCharacteristic{}
 	windowsConnectingMu sync.Mutex
 	windowsConnecting   = map[string]struct{}{}
+	windowsBackoff      = newConnectBackoffTable()
 
 	windowsPeripheralMu        sync.Mutex
 	windowsPeripheralDataChar  bluetooth.Characteristic
@@ -41,10 +43,11 @@ var (
 )
 
 var (
-	bleServiceUUID  = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x01, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
-	bleNickCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x02, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
-	bleDataCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x04, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
-	bleSessCharUUID = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x05, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	bleServiceUUID               = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x01, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	bleNickCharUUID              = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x02, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	bleDataCharUUID              = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x04, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	bleSessCharUUID              = bluetooth.NewUUID([16]byte{0xBD, 0x9E, 0x00, 0x05, 0xF0, 0xF0, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB})
+	windowsConnectFailureBackoff = 2 * time.Minute
 )
 
 func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
@@ -137,6 +140,9 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 				return
 			}
 			peerAddr := d.Address.String()
+			if _, active := windowsBackoff.Active(peerAddr, time.Now()); active {
+				return
+			}
 			candidatesMu.Lock()
 			if _, ok := seen[peerAddr]; !ok {
 				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
@@ -305,9 +311,14 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 	dev, err := adapter.Connect(d.Address, bluetooth.ConnectionParams{})
 	if err != nil {
 		logWindowsBLE("connect failed: addr=%s err=%v", peerAddr, err)
+		if isWindowsAddressNotFound(err) {
+			until := windowsBackoff.Mark(peerAddr, time.Now(), windowsConnectFailureBackoff)
+			logWindowsBLE("connect backoff: addr=%s retryAfter=%s reason=address-not-found", peerAddr, time.Until(until).Round(time.Second))
+		}
 		cleanup()
 		return
 	}
+	windowsBackoff.Clear(peerAddr)
 	logWindowsBLE("connected: addr=%s", peerAddr)
 	go func() {
 		<-ctx.Done()
@@ -439,6 +450,10 @@ func logWindowsBLE(format string, args ...any) {
 	if cb != nil {
 		cb(fmt.Sprintf(format, args...))
 	}
+}
+
+func isWindowsAddressNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "device with the given address was not found")
 }
 
 func suppressNextWindowsLocalWrite() {

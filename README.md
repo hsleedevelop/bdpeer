@@ -8,12 +8,12 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  bdpeer v0.5.31  [alice]                             │
+│  bdpeer v0.5.32  [alice]                             │
 ├──────────────┬───────────────────────────────────────┤
 │ Peers        │ Chat: bob                             │
 │ Me: alice    │                                       │
 │ Version:     │ bob: 안녕!                            │
-│ v0.5.31      │ Me: 파일 보낼게                       │
+│ v0.5.32      │ Me: 파일 보낼게                       │
 │              │                                       │
 │ ▶ bob        │ > /file ~/photo.jpg█                  │
 │   carol      │ Enter send  /file <path>  Esc quit    │
@@ -46,7 +46,7 @@ Apple Silicon은 `darwin_arm64`, Intel은 `darwin_amd64` 아카이브를 받습�
 
 ```bash
 # 1. 다운로드 (Apple Silicon 예시 — Intel은 darwin_amd64로 교체)
-VERSION=0.5.31
+VERSION=0.5.32
 curl -L -o bdpeer.tar.gz \
   https://github.com/hsleedevelop/bdpeer/releases/download/v${VERSION}/bdpeer_${VERSION}_darwin_arm64.tar.gz
 
@@ -73,7 +73,7 @@ codesign -dv ./bdpeer 2>&1 | grep -E "Identifier|flags"
 - v0.5.13부터 macOS는 기본적으로 BLE GATT 데이터 채널만 사용하며, BLE→WebRTC 업그레이드는 `enable_ble_webrtc: true` 설정에서만 활성화됩니다. Windows↔Windows BLE 발견을 위해 v0.5.10의 광고 경로도 복원했습니다.
 - v0.5.12부터 macOS CoreBluetooth 초기화 직후 닉네임 객체 수명 문제로 발생하던 `dataUsingEncoding:` 크래시를 수정했습니다.
 - v0.5.24부터 macOS BLE central은 연결 타임아웃이나 service discovery 실패 후 stale peripheral을 정리하고 짧은 recovery scan을 예약해, 같은 피어를 다시 잡을 수 있도록 합니다. 현재 버전은 BLE powered-on 이후 자동 scan을 계속 유지합니다. 필요 시 `BDPEER_DARWIN_BLE_STARTUP_SCAN_SECONDS=30 ./bdpeer`처럼 실행해 자동 scan을 제한 시간으로만 돌리는 실험을 할 수 있습니다.
-- v0.5.26부터 Windows BLE는 짧은 스캔 윈도우를 닫은 뒤 발견 후보에 연결해, Windows 스택이 스캔 중 연결 주소를 찾지 못하던 문제를 줄입니다. v0.5.27부터는 Windows BLE 디버그 로그에 service UUID 여부, manufacturer nickname, localName, RSSI를 함께 남깁니다. v0.5.31부터는 Windows 광고 제약으로 service UUID가 보이지 않아도 유효한 manufacturer nickname이 있으면 GATT 연결 후보로 사용합니다.
+- v0.5.26부터 Windows BLE는 짧은 스캔 윈도우를 닫은 뒤 발견 후보에 연결해, Windows 스택이 스캔 중 연결 주소를 찾지 못하던 문제를 줄입니다. v0.5.27부터는 Windows BLE 디버그 로그에 service UUID 여부, manufacturer nickname, localName, RSSI를 함께 남깁니다. v0.5.31부터는 Windows 광고 제약으로 service UUID가 보이지 않아도 유효한 manufacturer nickname이 있으면 GATT 연결 후보로 사용합니다. v0.5.32부터는 Windows가 해당 BLE 주소를 장치로 해석하지 못하는 경우 같은 주소 재시도를 2분 동안 억제해 반복 로그를 줄입니다.
 - macOS의 TCC는 child process가 아닌 **호스트 터미널 앱**의 권한을 확인합니다. cmux, tmux 일부 빌드 등 Bluetooth usage description이 없는 터미널 멀티플렉서에서 실행하면 다이얼로그가 뜨지 않고 즉시 종료됩니다. 이 경우 Terminal.app 또는 iTerm2에서 실행해 주세요.
 - 권한 다이얼로그를 거부했거나 동작이 이상하다면: 시스템 설정 → 개인 정보 보호 및 보안 → Bluetooth 에서 사용 중인 터미널 앱을 토글로 켜면 됩니다.
 
@@ -113,7 +113,7 @@ make build
 
 첫 실행 시 닉네임을 입력하면 메인 화면으로 전환됩니다. 같은 네트워크의 피어는 즉시 발견되고, 다른 서브넷·인터넷 너머 피어는 DHT를 통해 약 10–30초 후 자동으로 나타납니다. BLE 근거리 피어도 앱 시작 후 자동으로 검색됩니다.
 
-v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다. v0.5.28부터 Peers 패널에도 버전이 표시되며, 한글 IME 입력 중 깨짐과 입력 지연을 줄였습니다. v0.5.29부터 로그 뷰는 긴 DHT/BLE 로그를 패널 폭에 맞게 절단해 작은 창에서도 전체 TUI 높이를 넘지 않습니다. v0.5.30부터 BLE 파일 전송은 frame 단위로 송신하고 BLE chunk 누락을 감지해 macOS BLE-only 전송 중 `invalid character '\x00'` frame desync가 발생하지 않도록 했습니다. v0.5.31부터 Windows BLE는 service UUID가 없는 유효한 bdpeer manufacturer nickname 광고도 연결 후보로 처리하고, 닉네임을 알 수 없는 libp2p peer의 반복 disconnect 로그를 억제합니다.
+v0.5.25부터 TUI 상단과 첫 실행 닉네임 입력 화면에 현재 앱 버전이 표시됩니다. v0.5.28부터 Peers 패널에도 버전이 표시되며, 한글 IME 입력 중 깨짐과 입력 지연을 줄였습니다. v0.5.29부터 로그 뷰는 긴 DHT/BLE 로그를 패널 폭에 맞게 절단해 작은 창에서도 전체 TUI 높이를 넘지 않습니다. v0.5.30부터 BLE 파일 전송은 frame 단위로 송신하고 BLE chunk 누락을 감지해 macOS BLE-only 전송 중 `invalid character '\x00'` frame desync가 발생하지 않도록 했습니다. v0.5.31부터 Windows BLE는 service UUID가 없는 유효한 bdpeer manufacturer nickname 광고도 연결 후보로 처리하고, 닉네임을 알 수 없는 libp2p peer의 반복 disconnect 로그를 억제합니다. v0.5.32부터 Windows BLE 주소 해석 실패는 2분 backoff를 적용해 동일 주소 연결 실패 로그가 빠르게 반복되지 않도록 했습니다.
 
 `Tab` 키로 우측 패널을 로그 뷰로 전환하면 피어 발견 과정(DHT 광고·검색·연결 시도)을 실시간으로 확인할 수 있습니다. DHT 자동 검색은 계속 백그라운드에서 동작하지만, 상태 로그와 같은 피어의 반복 연결 실패는 일정 간격으로 억제됩니다.
 
@@ -170,7 +170,7 @@ darwin 빌드는 `codesign` 단계가 자동 포함됩니다 — ad-hoc 서명. 
 
 > **SSDP 자동 연결 (v0.4.3+)**: SSDP 광고에 libp2p peer.ID가 포함되어, 같은 LAN의 Windows/Android 피어가 발견되면 별도 `/connect` 없이도 libp2p로 자동 연결됩니다. 발견 즉시 양방향 텍스트·파일 전송 가능.  
 > **BLE→WebRTC**: macOS에서 `enable_ble_webrtc: true`로 명시 활성화한 경우에만 사용합니다. BLE로 상대를 발견하면 WebRTC SDP offer/answer를 BLE로 교환하고 STUN/TURN으로 NAT를 뚫어 직접 연결합니다. 알파벳 순으로 낮은 닉네임이 Initiator(offer), 높은 닉네임이 Responder(answer)로 자동 결정됩니다. v0.3.5부터 ICE gathering 타임아웃 시 연결을 끊지 않고 수집된 candidate로 핸드셰이크를 계속 진행하여 기업망 등 STUN/TURN 응답이 느린 환경에서도 연결 성공률이 향상됩니다. v0.4.3부터 BLE 발견 즉시 사이드바에 잠정 항목으로 표시되어 WebRTC 핸드셰이크 진행 상황을 바로 확인할 수 있습니다.
-> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 기본적으로 BLE GATT만으로 통신합니다. macOS↔Linux도 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. v0.5.14부터 BLE 스캔은 상시 실행하지 않고 수동 5초 검색으로 바뀌었지만, 현재 버전에서는 BLE-only 폐쇄망 발견 안정성을 위해 앱 시작 후 자동 검색으로 되돌렸습니다. v0.5.15부터는 5초 스캔 창 전체를 유지하고 발견 후보를 모두 연결해, 첫 광고 하나 때문에 다른 피어 검색이 중단되지 않습니다. v0.5.16부터는 BLE synthetic ID의 원문 라우팅 키를 보존해, 목록에는 보이지만 전송 시 `unknown peer`가 나는 문제를 수정했습니다. v0.5.17부터 macOS 스캔은 중간 실패로 남은 stale peripheral 캐시를 재처리하고 CoreBluetooth 광고/스캔/연결 로그를 남깁니다. v0.5.20부터는 macOS nickname read가 실패하거나 광고명이 `Mac`/`unknown`으로 들어와도 characteristic 확인 후 임시 BLE UUID 이름으로 등록해 BLE Hello로 실제 닉네임을 갱신합니다. v0.5.21부터는 macOS에서 발견 후 `didConnect` 콜백이 오지 않는 peripheral을 8초 후 정리해 다음 검색에서 다시 연결을 시도했습니다. v0.5.22부터는 macOS scan을 다시 `options:nil`로 실행하고, duplicate 광고 재처리와 timeout 강제 cancel을 줄여 v0.4.4에 가까운 central lifecycle로 검증합니다. v0.5.23부터는 CoreBluetooth가 연결 타임아웃이나 빈 service discovery 결과를 반환할 때 각각 1회 지연 재시도합니다. v0.5.24부터는 연결 타임아웃과 service discovery 실패 뒤 stale peripheral을 정리하고 짧은 recovery scan으로 재발견 기회를 열어 둡니다. v0.5.26부터 Windows 자동 발견은 스캔 중 즉시 연결하지 않고 5초 스캔 윈도우를 닫은 뒤 후보에 연결합니다. v0.5.27부터 Windows 자동 발견은 `scan candidate`와 `connect attempt` 로그에 service UUID 여부, manufacturer nickname, localName, RSSI를 함께 기록합니다. v0.5.30부터 BLE 파일 전송은 bdpeer frame 단위로 송신하고 BLE chunk 순서를 검증해, 조각 누락 시 깨진 JSON payload를 상위 파일 리더로 넘기지 않습니다. v0.5.31부터 Windows는 service UUID가 광고에 보이지 않아도 유효한 bdpeer manufacturer nickname이 있으면 GATT service discovery를 시도합니다.
+> **BLE 데이터 전송 (v0.4+)**: BLE GATT DataChar(`BD9E0004`)로 텍스트 프레임을 직접 송수신합니다. macOS↔macOS는 기본적으로 BLE GATT만으로 통신합니다. macOS↔Linux도 BLE GATT만으로 통신합니다. Windows↔Windows는 v0.5.11부터 SessionChar(`BD9E0005`)와 session-addressed `S` chunk를 사용해 `ble-<session>` synthetic ID로 라우팅합니다. 이 경로는 양쪽 Windows가 v0.5.11 이상이어야 하며, 구버전 Windows 또는 macOS/Linux와의 BLE direct 호환은 별도 fallback 작업 대상입니다. v0.5.14부터 BLE 스캔은 상시 실행하지 않고 수동 5초 검색으로 바뀌었지만, 현재 버전에서는 BLE-only 폐쇄망 발견 안정성을 위해 앱 시작 후 자동 검색으로 되돌렸습니다. v0.5.15부터는 5초 스캔 창 전체를 유지하고 발견 후보를 모두 연결해, 첫 광고 하나 때문에 다른 피어 검색이 중단되지 않습니다. v0.5.16부터는 BLE synthetic ID의 원문 라우팅 키를 보존해, 목록에는 보이지만 전송 시 `unknown peer`가 나는 문제를 수정했습니다. v0.5.17부터 macOS 스캔은 중간 실패로 남은 stale peripheral 캐시를 재처리하고 CoreBluetooth 광고/스캔/연결 로그를 남깁니다. v0.5.20부터는 macOS nickname read가 실패하거나 광고명이 `Mac`/`unknown`으로 들어와도 characteristic 확인 후 임시 BLE UUID 이름으로 등록해 BLE Hello로 실제 닉네임을 갱신합니다. v0.5.21부터는 macOS에서 발견 후 `didConnect` 콜백이 오지 않는 peripheral을 8초 후 정리해 다음 검색에서 다시 연결을 시도했습니다. v0.5.22부터는 macOS scan을 다시 `options:nil`로 실행하고, duplicate 광고 재처리와 timeout 강제 cancel을 줄여 v0.4.4에 가까운 central lifecycle로 검증합니다. v0.5.23부터는 CoreBluetooth가 연결 타임아웃이나 빈 service discovery 결과를 반환할 때 각각 1회 지연 재시도합니다. v0.5.24부터는 연결 타임아웃과 service discovery 실패 뒤 stale peripheral을 정리하고 짧은 recovery scan으로 재발견 기회를 열어 둡니다. v0.5.26부터 Windows 자동 발견은 스캔 중 즉시 연결하지 않고 5초 스캔 윈도우를 닫은 뒤 후보에 연결합니다. v0.5.27부터 Windows 자동 발견은 `scan candidate`와 `connect attempt` 로그에 service UUID 여부, manufacturer nickname, localName, RSSI를 함께 기록합니다. v0.5.30부터 BLE 파일 전송은 bdpeer frame 단위로 송신하고 BLE chunk 순서를 검증해, 조각 누락 시 깨진 JSON payload를 상위 파일 리더로 넘기지 않습니다. v0.5.31부터 Windows는 service UUID가 광고에 보이지 않아도 유효한 bdpeer manufacturer nickname이 있으면 GATT service discovery를 시도합니다. v0.5.32부터 Windows가 BLE 광고 주소를 장치로 해석하지 못하면 같은 주소 연결 재시도를 2분 동안 억제합니다.
 > **TURN 릴레이**: STUN만으로 NAT 홀펀칭이 실패하면(기업망 등) Open Relay Project TURN 서버가 자동으로 중계합니다. 전송 데이터는 DTLS로 암호화되어 TURN 서버도 내용을 볼 수 없습니다. 자체 TURN 서버를 사용하려면 아래 설정을 참고하세요.  
 > **AirDrop**: Apple 전용 AWDL 프로토콜 — 구현 불가. 같은 Wi-Fi에서는 Bonjour로 발견 가능.  
 > **Quick Share**: Google Nearby Connections 와이어 프로토콜 필요 (Phase 3 예정).  
