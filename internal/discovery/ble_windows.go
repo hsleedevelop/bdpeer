@@ -136,7 +136,7 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 			}
 			details := windowsAdvertisementDetails(d)
 			if details.manufacturerNick != "unknown" && details.manufacturerNick == nickname {
-				logWindowsBLE("scan skipped self advertisement: manufacturerNick=%q localName=%q hasServiceUUID=%v rssi=%d", details.manufacturerNick, details.localName, details.hasServiceUUID, details.rssi)
+				logWindowsBLE("scan skipped self advertisement: manufacturerNick=%q localName=%q hasServiceUUID=%v addressRandom=%v rssi=%d", details.manufacturerNick, details.localName, details.hasServiceUUID, details.addressRandom, details.rssi)
 				return
 			}
 			peerAddr := d.Address.String()
@@ -145,7 +145,7 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 			}
 			candidatesMu.Lock()
 			if _, ok := seen[peerAddr]; !ok {
-				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
+				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 				seen[peerAddr] = struct{}{}
 			}
 			if !isWindowsBLEConnectCandidate(details) {
@@ -153,7 +153,7 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 				return
 			}
 			if _, ok := candidates[peerAddr]; !ok {
-				logWindowsBLE("scan connect candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
+				logWindowsBLE("scan connect candidate: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 			}
 			candidates[peerAddr] = d
 			candidatesMu.Unlock()
@@ -307,7 +307,7 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 	}
 
 	details := windowsAdvertisementDetails(d)
-	logWindowsBLE("connect attempt: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
+	logWindowsBLE("connect attempt: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 	dev, err := adapter.Connect(d.Address, bluetooth.ConnectionParams{})
 	if err != nil {
 		logWindowsBLE("connect failed: addr=%s err=%v", peerAddr, err)
@@ -404,6 +404,7 @@ func isWindowsBLEConnectCandidate(details windowsScanDetails) bool {
 
 type windowsScanDetails struct {
 	hasServiceUUID   bool
+	addressRandom    bool
 	manufacturerNick string
 	localName        string
 	rssi             int16
@@ -412,6 +413,7 @@ type windowsScanDetails struct {
 func windowsAdvertisementDetails(d bluetooth.ScanResult) windowsScanDetails {
 	details := windowsScanDetails{
 		manufacturerNick: "unknown",
+		addressRandom:    d.Address.IsRandom(),
 		rssi:             d.RSSI,
 	}
 	if d.AdvertisementPayload == nil {

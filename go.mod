@@ -18,6 +18,8 @@ require (
 	tinygo.org/x/bluetooth v0.15.0
 )
 
+replace tinygo.org/x/bluetooth => ./third_party/tinygo-bluetooth
+
 require (
 	aead.dev/minisign v0.2.0 // indirect
 	filippo.io/bigmod v0.1.1-0.20260103110540-f8a47775ebe5 // indirect
