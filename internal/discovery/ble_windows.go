@@ -142,12 +142,12 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
 				seen[peerAddr] = struct{}{}
 			}
-			if !details.hasServiceUUID {
+			if !isWindowsBLEConnectCandidate(details) {
 				candidatesMu.Unlock()
 				return
 			}
 			if _, ok := candidates[peerAddr]; !ok {
-				logWindowsBLE("scan gatt candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
+				logWindowsBLE("scan connect candidate: addr=%s hasServiceUUID=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.manufacturerNick, details.localName, details.rssi)
 			}
 			candidates[peerAddr] = d
 			candidatesMu.Unlock()
@@ -384,7 +384,11 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 
 func isBDPeerAdvertisement(d bluetooth.ScanResult) bool {
 	details := windowsAdvertisementDetails(d)
-	return details.hasServiceUUID || details.manufacturerNick != "unknown"
+	return isWindowsBLEConnectCandidate(details)
+}
+
+func isWindowsBLEConnectCandidate(details windowsScanDetails) bool {
+	return details.hasServiceUUID || details.manufacturerNick != unknownBLENickname
 }
 
 type windowsScanDetails struct {
@@ -464,8 +468,10 @@ func newWindowsSessionID() string {
 func extractBLENickname(data []bluetooth.ManufacturerDataElement) string {
 	for _, d := range data {
 		if d.CompanyID == 0xFFFF && len(d.Data) > 0 {
-			return string(d.Data)
+			if nick := normalizeBLENickname(d.Data); nick != unknownBLENickname {
+				return nick
+			}
 		}
 	}
-	return "unknown"
+	return unknownBLENickname
 }

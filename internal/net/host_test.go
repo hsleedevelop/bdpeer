@@ -28,3 +28,23 @@ func TestNewHost(t *testing.T) {
 		t.Errorf("got nickname %q, want %q", h.Nickname, "alice")
 	}
 }
+
+func TestLookupNicknameOnlyReturnsKnownNicknames(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	h, err := bnet.NewHost(ctx, "alice")
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	defer h.Close()
+
+	if got, ok := h.LookupNickname(h.Libp2p.ID()); ok || got != "" {
+		t.Fatalf("LookupNickname() = %q, %v; want unknown", got, ok)
+	}
+
+	h.RememberNickname(h.Libp2p.ID(), "alice")
+	if got, ok := h.LookupNickname(h.Libp2p.ID()); !ok || got != "alice" {
+		t.Fatalf("LookupNickname() = %q, %v; want alice, true", got, ok)
+	}
+}

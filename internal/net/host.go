@@ -139,10 +139,7 @@ func (h *Host) RememberNickname(id peer.ID, nickname string) {
 }
 
 func (h *Host) NicknameFor(id peer.ID) string {
-	h.mu.RLock()
-	nick := h.nicknames[id]
-	h.mu.RUnlock()
-	if nick != "" {
+	if nick, ok := h.LookupNickname(id); ok {
 		return nick
 	}
 	if id != "" {
@@ -153,6 +150,16 @@ func (h *Host) NicknameFor(id peer.ID) string {
 		return s
 	}
 	return "unknown"
+}
+
+func (h *Host) LookupNickname(id peer.ID) (string, bool) {
+	h.mu.RLock()
+	nick := h.nicknames[id]
+	h.mu.RUnlock()
+	if nick != "" {
+		return nick, true
+	}
+	return "", false
 }
 
 func (h *Host) Close() error {
@@ -199,7 +206,7 @@ func (n *libp2pNotifee) Connected(_ network.Network, conn network.Conn) {
 func (n *libp2pNotifee) Disconnected(_ network.Network, conn network.Conn) {
 	id := conn.RemotePeer()
 	// Only log disconnect for peers we actually knew (had a nickname).
-	if nick := n.host.NicknameFor(id); nick != "" {
+	if nick, ok := n.host.LookupNickname(id); ok {
 		n.host.emitLog("연결 끊김: " + nick)
 	}
 	n.mgr.Forget(id.String())

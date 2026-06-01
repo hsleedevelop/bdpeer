@@ -13,6 +13,7 @@ import (
 )
 
 const ssdpType = "urn:bdpeer-org:device:BdPeer:1"
+const ssdpMonitorStartupDelay = 50 * time.Millisecond
 
 // AdvertiseSSDP announces this peer on the local network. ip should be a
 // routable interface address (not 0.0.0.0); peerID is the libp2p host ID so
@@ -82,11 +83,19 @@ func SearchSSDP(ctx context.Context, mgr *Manager) (stop func(), err error) {
 				}
 			},
 		}
+		select {
+		case <-stopCtx.Done():
+			return
+		default:
+		}
 		if err := mon.Start(); err != nil {
 			return
 		}
-		defer mon.Close()
+		// go-ssdp starts its monitor reader asynchronously. If Close races before
+		// that goroutine reads the connection, it can dereference a nil conn.
+		time.Sleep(ssdpMonitorStartupDelay)
 		<-stopCtx.Done()
+		_ = mon.Close()
 	}()
 
 	return cancel, nil

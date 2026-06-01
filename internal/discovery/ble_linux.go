@@ -167,8 +167,10 @@ func connectAndSubscribe(ctx context.Context, adapter *bluetooth.Adapter, d blue
 func extractBLENickname(data []bluetooth.ManufacturerDataElement) string {
 	for _, d := range data {
 		if d.CompanyID == 0xFFFF && len(d.Data) > 0 {
-			return string(d.Data)
+			if nick := normalizeBLENickname(d.Data); nick != unknownBLENickname {
+				return nick
+			}
 		}
 	}
-	return "unknown"
+	return unknownBLENickname
 }
