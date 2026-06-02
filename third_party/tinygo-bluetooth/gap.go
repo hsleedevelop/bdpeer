@@ -148,6 +148,10 @@ type ScanResult struct {
 	// Signal strength of the  advertisement packet.
 	RSSI int16
 
+	// Connectable indicates whether the advertisement can accept a connection.
+	// It is set on platforms that expose this event metadata.
+	Connectable bool
+
 	// The data obtained from the advertisement data, which may contain many
 	// different properties.
 	// Warning: this data may only stay valid until the next event arrives. If

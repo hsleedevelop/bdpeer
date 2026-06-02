@@ -219,13 +219,16 @@ func getScanResultFromArgs(args *advertisement.BluetoothLEAdvertisementReceivedE
 		adr.MAC[i] = byte(addr)
 		addr >>= 8
 	}
-	if addressType, ok := getWindowsAdvertisementAddressType(args); ok && addressType == bluetooth.BluetoothAddressTypeRandom {
-		adr.SetRandom(true)
-	}
 	sigStrength, _ := args.GetRawSignalStrengthInDBm()
 	result := ScanResult{
 		RSSI:    sigStrength,
 		Address: adr,
+	}
+	if details, ok := getWindowsAdvertisementEventDetails(args); ok {
+		if details.addressType == bluetooth.BluetoothAddressTypeRandom {
+			result.Address.SetRandom(true)
+		}
+		result.Connectable = details.connectable
 	}
 
 	winAdv, err := args.GetAdvertisement()
@@ -297,24 +300,41 @@ func (v *windowsAdvertisementReceivedEventArgs2) VTable() *windowsAdvertisementR
 	return (*windowsAdvertisementReceivedEventArgs2Vtbl)(unsafe.Pointer(v.RawVTable))
 }
 
-func getWindowsAdvertisementAddressType(args *advertisement.BluetoothLEAdvertisementReceivedEventArgs) (bluetooth.BluetoothAddressType, bool) {
+type windowsAdvertisementEventDetails struct {
+	addressType bluetooth.BluetoothAddressType
+	connectable bool
+}
+
+func getWindowsAdvertisementEventDetails(args *advertisement.BluetoothLEAdvertisementReceivedEventArgs) (windowsAdvertisementEventDetails, bool) {
 	itf, err := args.QueryInterface(ole.NewGUID(advertisement.GUIDiBluetoothLEAdvertisementReceivedEventArgs2))
 	if err != nil {
-		return bluetooth.BluetoothAddressTypeUnspecified, false
+		return windowsAdvertisementEventDetails{}, false
 	}
 	defer itf.Release()
 
 	v := (*windowsAdvertisementReceivedEventArgs2)(unsafe.Pointer(itf))
-	var out bluetooth.BluetoothAddressType
+	var details windowsAdvertisementEventDetails
 	hr, _, _ := syscall.SyscallN(
 		v.VTable().GetBluetoothAddressType,
 		uintptr(unsafe.Pointer(v)),
-		uintptr(unsafe.Pointer(&out)),
+		uintptr(unsafe.Pointer(&details.addressType)),
 	)
 	if hr != 0 {
-		return bluetooth.BluetoothAddressTypeUnspecified, false
+		return windowsAdvertisementEventDetails{}, false
 	}
-	return out, true
+	if !windowsAdvertisementBool(v, v.VTable().GetIsConnectable, &details.connectable) {
+		return windowsAdvertisementEventDetails{}, false
+	}
+	return details, true
+}
+
+func windowsAdvertisementBool(v *windowsAdvertisementReceivedEventArgs2, method uintptr, out *bool) bool {
+	hr, _, _ := syscall.SyscallN(
+		method,
+		uintptr(unsafe.Pointer(v)),
+		uintptr(unsafe.Pointer(out)),
+	)
+	return hr == 0
 }
 
 func GUIDToUUID(guid syscall.GUID) UUID {

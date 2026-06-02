@@ -63,32 +63,9 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := addWindowsService(adapter, nickname); err != nil {
 		return err
 	}
-	if err := startWindowsAdvertisement(ctx, adapter, nickname); err != nil {
-		return err
-	}
 	go scanWindowsBLE(ctx, adapter, nickname, mgr)
 
 	<-ctx.Done()
-	return nil
-}
-
-func startWindowsAdvertisement(ctx context.Context, adapter *bluetooth.Adapter, nickname string) error {
-	adv := adapter.DefaultAdvertisement()
-	if err := adv.Configure(bluetooth.AdvertisementOptions{
-		ManufacturerData: []bluetooth.ManufacturerDataElement{
-			{CompanyID: 0xFFFF, Data: []byte(nickname)},
-		},
-	}); err != nil {
-		return fmt.Errorf("BLE advertisement configure: %w", err)
-	}
-	if err := adv.Start(); err != nil {
-		return fmt.Errorf("BLE advertisement start: %w", err)
-	}
-	logWindowsBLE("advertising started")
-	go func() {
-		<-ctx.Done()
-		_ = adv.Stop()
-	}()
 	return nil
 }
 
@@ -145,7 +122,7 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 			}
 			candidatesMu.Lock()
 			if _, ok := seen[peerAddr]; !ok {
-				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
+				logWindowsBLE("scan candidate: addr=%s hasServiceUUID=%v connectable=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.connectable, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 				seen[peerAddr] = struct{}{}
 			}
 			if !isWindowsBLEConnectCandidate(details) {
@@ -153,7 +130,7 @@ func scanWindowsBLEWindow(ctx context.Context, adapter *bluetooth.Adapter, nickn
 				return
 			}
 			if _, ok := candidates[peerAddr]; !ok {
-				logWindowsBLE("scan connect candidate: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
+				logWindowsBLE("scan connect candidate: addr=%s hasServiceUUID=%v connectable=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.connectable, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 			}
 			candidates[peerAddr] = d
 			candidatesMu.Unlock()
@@ -307,7 +284,7 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 	}
 
 	details := windowsAdvertisementDetails(d)
-	logWindowsBLE("connect attempt: addr=%s hasServiceUUID=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
+	logWindowsBLE("connect attempt: addr=%s hasServiceUUID=%v connectable=%v addressRandom=%v manufacturerNick=%q localName=%q rssi=%d", peerAddr, details.hasServiceUUID, details.connectable, details.addressRandom, details.manufacturerNick, details.localName, details.rssi)
 	dev, err := adapter.Connect(d.Address, bluetooth.ConnectionParams{})
 	if err != nil {
 		logWindowsBLE("connect failed: addr=%s err=%v", peerAddr, err)
@@ -395,15 +372,16 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 
 func isBDPeerAdvertisement(d bluetooth.ScanResult) bool {
 	details := windowsAdvertisementDetails(d)
-	return isWindowsBLEConnectCandidate(details)
+	return details.hasServiceUUID || details.manufacturerNick != unknownBLENickname
 }
 
 func isWindowsBLEConnectCandidate(details windowsScanDetails) bool {
-	return details.hasServiceUUID || details.manufacturerNick != unknownBLENickname
+	return details.connectable && details.hasServiceUUID
 }
 
 type windowsScanDetails struct {
 	hasServiceUUID   bool
+	connectable      bool
 	addressRandom    bool
 	manufacturerNick string
 	localName        string
@@ -413,6 +391,7 @@ type windowsScanDetails struct {
 func windowsAdvertisementDetails(d bluetooth.ScanResult) windowsScanDetails {
 	details := windowsScanDetails{
 		manufacturerNick: "unknown",
+		connectable:      d.Connectable,
 		addressRandom:    d.Address.IsRandom(),
 		rssi:             d.RSSI,
 	}
