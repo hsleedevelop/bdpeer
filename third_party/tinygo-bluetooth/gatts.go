@@ -6,6 +6,7 @@ type Service struct {
 	handle uint16
 	UUID
 	Characteristics []CharacteristicConfig
+	ServiceData     []byte
 }
 
 type WriteEvent = func(client Connection, offset int, value []byte)

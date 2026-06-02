@@ -63,32 +63,9 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := addWindowsService(adapter, nickname); err != nil {
 		return err
 	}
-	if err := startWindowsAdvertisement(ctx, adapter, nickname); err != nil {
-		return err
-	}
 	go scanWindowsBLE(ctx, adapter, nickname, mgr)
 
 	<-ctx.Done()
-	return nil
-}
-
-func startWindowsAdvertisement(ctx context.Context, adapter *bluetooth.Adapter, nickname string) error {
-	adv := adapter.DefaultAdvertisement()
-	if err := adv.Configure(bluetooth.AdvertisementOptions{
-		ManufacturerData: []bluetooth.ManufacturerDataElement{
-			{CompanyID: 0xFFFF, Data: []byte(nickname)},
-		},
-	}); err != nil {
-		return fmt.Errorf("BLE advertisement configure: %w", err)
-	}
-	if err := adv.Start(); err != nil {
-		return fmt.Errorf("BLE advertisement start: %w", err)
-	}
-	logWindowsBLE("advertising started")
-	go func() {
-		<-ctx.Done()
-		_ = adv.Stop()
-	}()
 	return nil
 }
 
@@ -244,7 +221,8 @@ func BLECentralSendData(peerSessionID string, data []byte) {
 func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 	var dataChar bluetooth.Characteristic
 	err := adapter.AddService(&bluetooth.Service{
-		UUID: bleServiceUUID,
+		UUID:        bleServiceUUID,
+		ServiceData: []byte(nickname),
 		Characteristics: []bluetooth.CharacteristicConfig{
 			{
 				UUID:  bleNickCharUUID,
@@ -283,6 +261,7 @@ func addWindowsService(adapter *bluetooth.Adapter, nickname string) error {
 	windowsPeripheralDataChar = dataChar
 	windowsPeripheralMu.Unlock()
 	logWindowsBLE("GATT service started")
+	logWindowsBLE("advertising started")
 	return nil
 }
 
@@ -403,10 +382,7 @@ func isWindowsBLEVisibleAdvertisement(details windowsScanDetails) bool {
 }
 
 func isWindowsBLEConnectCandidate(details windowsScanDetails) bool {
-	if details.connectable && details.hasServiceUUID {
-		return true
-	}
-	return details.manufacturerNick != unknownBLENickname
+	return details.connectable && details.hasServiceUUID
 }
 
 type windowsScanDetails struct {

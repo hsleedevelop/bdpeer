@@ -237,6 +237,27 @@ func (a *Adapter) AddService(s *Service) error {
 		return err
 	}
 
+	if len(s.ServiceData) > 0 {
+		writer, err := streams.NewDataWriter()
+		if err != nil {
+			return err
+		}
+		defer writer.Release()
+
+		if err = writer.WriteBytes(uint32(len(s.ServiceData)), s.ServiceData); err != nil {
+			return err
+		}
+		buf, err := writer.DetachBuffer()
+		if err != nil {
+			return err
+		}
+		defer buf.Release()
+
+		if err = params.SetServiceData(buf); err != nil {
+			return err
+		}
+	}
+
 	return serviceProvider.StartAdvertisingWithParameters(params)
 }
 
