@@ -63,9 +63,32 @@ func StartBLE(ctx context.Context, nickname string, mgr *Manager) error {
 	if err := addWindowsService(adapter, nickname); err != nil {
 		return err
 	}
+	if err := startWindowsAdvertisement(ctx, adapter, nickname); err != nil {
+		return err
+	}
 	go scanWindowsBLE(ctx, adapter, nickname, mgr)
 
 	<-ctx.Done()
+	return nil
+}
+
+func startWindowsAdvertisement(ctx context.Context, adapter *bluetooth.Adapter, nickname string) error {
+	adv := adapter.DefaultAdvertisement()
+	if err := adv.Configure(bluetooth.AdvertisementOptions{
+		ManufacturerData: []bluetooth.ManufacturerDataElement{
+			{CompanyID: 0xFFFF, Data: []byte(nickname)},
+		},
+	}); err != nil {
+		return fmt.Errorf("BLE advertisement configure: %w", err)
+	}
+	if err := adv.Start(); err != nil {
+		return fmt.Errorf("BLE advertisement start: %w", err)
+	}
+	logWindowsBLE("advertising started")
+	go func() {
+		<-ctx.Done()
+		_ = adv.Stop()
+	}()
 	return nil
 }
 
@@ -372,6 +395,10 @@ func connectAndSubscribeWindows(ctx context.Context, adapter *bluetooth.Adapter,
 
 func isBDPeerAdvertisement(d bluetooth.ScanResult) bool {
 	details := windowsAdvertisementDetails(d)
+	return isWindowsBLEVisibleAdvertisement(details)
+}
+
+func isWindowsBLEVisibleAdvertisement(details windowsScanDetails) bool {
 	return details.hasServiceUUID || details.manufacturerNick != unknownBLENickname
 }
 

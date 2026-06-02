@@ -52,3 +52,12 @@ func TestWindowsBLEConnectCandidateRequiresConnectableServiceAdvertisement(t *te
 		})
 	}
 }
+
+func TestWindowsBLEAdvertisementVisibilityIncludesManufacturerOnlyAdvertisements(t *testing.T) {
+	if !isWindowsBLEVisibleAdvertisement(windowsScanDetails{
+		manufacturerNick: "chad-dev",
+		connectable:      false,
+	}) {
+		t.Fatal("manufacturer-only bdpeer advertisement should remain visible in scan logs")
+	}
+}
