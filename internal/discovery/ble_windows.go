@@ -403,7 +403,10 @@ func isWindowsBLEVisibleAdvertisement(details windowsScanDetails) bool {
 }
 
 func isWindowsBLEConnectCandidate(details windowsScanDetails) bool {
-	return details.connectable && details.hasServiceUUID
+	if details.connectable && details.hasServiceUUID {
+		return true
+	}
+	return details.manufacturerNick != unknownBLENickname
 }
 
 type windowsScanDetails struct {

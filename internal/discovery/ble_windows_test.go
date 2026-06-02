@@ -4,7 +4,7 @@ package discovery
 
 import "testing"
 
-func TestWindowsBLEConnectCandidateRequiresConnectableServiceAdvertisement(t *testing.T) {
+func TestWindowsBLEConnectCandidateIncludesManufacturerNicknameFallback(t *testing.T) {
 	tests := []struct {
 		name    string
 		details windowsScanDetails
@@ -19,15 +19,15 @@ func TestWindowsBLEConnectCandidateRequiresConnectableServiceAdvertisement(t *te
 			want: true,
 		},
 		{
-			name: "manufacturer-only advertisement is visible but not connectable",
+			name: "manufacturer-only bdpeer advertisement",
 			details: windowsScanDetails{
 				manufacturerNick: "chad-dev",
 				connectable:      false,
 			},
-			want: false,
+			want: true,
 		},
 		{
-			name: "service advertisement must be connectable",
+			name: "service advertisement must be connectable without nickname fallback",
 			details: windowsScanDetails{
 				hasServiceUUID: true,
 				connectable:    false,
@@ -35,9 +35,9 @@ func TestWindowsBLEConnectCandidateRequiresConnectableServiceAdvertisement(t *te
 			want: false,
 		},
 		{
-			name: "connectable foreign advertisement is not enough",
+			name: "connectable unknown advertisement is not enough",
 			details: windowsScanDetails{
-				manufacturerNick: "chad-dev",
+				manufacturerNick: unknownBLENickname,
 				connectable:      true,
 			},
 			want: false,
